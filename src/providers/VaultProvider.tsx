@@ -43,6 +43,7 @@ interface VaultContextType {
 
   credentials: CredentialMetadata[];
   addCredential: (name: string, type: string, content: string) => Promise<void>;
+  updateCredential: (credentialId: string, newName: string, newType: string, newContent: string) => Promise<void>;
   getDecryptedCredentialContent: (credentialId: string) => Promise<string | null>;
   deleteCredential: (credentialId: string) => Promise<void>;
   isLoadingCredentials: boolean; 
@@ -254,6 +255,43 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateCredential = async (credentialId: string, newName: string, newType: string, newContent: string) => {
+    if (!derivedKey || !activeUserVaultId) {
+      toast({ title: "Error", description: "Encryption key or vault ID not available.", variant: "destructive" });
+      return;
+    }
+    setIsLoadingCredentials(true);
+    try {
+      const contentBuffer = new TextEncoder().encode(newContent);
+      const { encryptedData, iv } = await encryptData(contentBuffer, derivedKey); // Re-encrypt content, new IV generated
+
+      const encryptedContentBase64 = arrayBufferToBase64(encryptedData);
+      const newIvBase64 = uint8ArrayToBase64(iv);
+
+      localStorage.setItem(`${getCredentialContentPrefix(activeUserVaultId)}${credentialId}`, encryptedContentBase64);
+
+      const updatedCredentials = credentials.map(cred => {
+        if (cred.id === credentialId) {
+          return {
+            ...cred,
+            name: newName,
+            type: newType,
+            ivBase64: newIvBase64,
+            // createdAt remains the same, or you could add an updatedAt field
+          };
+        }
+        return cred;
+      });
+      saveCredentialsMetadata(updatedCredentials);
+      toast({ title: "Success", description: `Credential "${newName}" updated successfully.` });
+    } catch (error) {
+      console.error('Update credential error:', error);
+      toast({ title: "Error", description: `Failed to update credential "${newName}".`, variant: "destructive" });
+    } finally {
+      setIsLoadingCredentials(false);
+    }
+  };
+
   const getDecryptedCredentialContent = async (credentialId: string): Promise<string | null> => {
     if (!derivedKey || !activeUserVaultId) {
       toast({ title: "Error", description: "Decryption key or vault ID not available.", variant: "destructive" });
@@ -313,6 +351,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     isLoading,
     credentials,
     addCredential,
+    updateCredential,
     getDecryptedCredentialContent,
     deleteCredential,
     isLoadingCredentials,

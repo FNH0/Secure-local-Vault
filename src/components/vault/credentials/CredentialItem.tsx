@@ -4,7 +4,7 @@
 import type { CredentialMetadata } from '@/providers/VaultProvider';
 import { useVault } from '@/providers/VaultProvider';
 import { Button } from '@/components/ui/button';
-import { KeyRound, Eye, Trash2, Loader2 } from 'lucide-react';
+import { KeyRound, Eye, Trash2, Loader2, Pencil } from 'lucide-react'; // Added Pencil
 import { format } from 'date-fns';
 import {
   AlertDialog,
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useState } from 'react';
 import { ViewCredentialModal } from './ViewCredentialModal';
+import { EditCredentialModal } from './EditCredentialModal'; // To be created
 import { Badge } from '@/components/ui/badge';
 
 interface CredentialItemProps {
@@ -29,24 +30,48 @@ export function CredentialItem({ credential }: CredentialItemProps) {
   const { getDecryptedCredentialContent, deleteCredential, isLoadingCredentials } = useVault();
   const [isViewing, setIsViewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false); // For fetching content before edit modal
+  
   const [showViewModal, setShowViewModal] = useState(false);
-  const [decryptedContent, setDecryptedContent] = useState<string | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  
+  const [decryptedContentForView, setDecryptedContentForView] = useState<string | null>(null);
+  const [decryptedContentForEdit, setDecryptedContentForEdit] = useState<string | null>(null);
   const [viewError, setViewError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
 
   const handleView = async () => {
     setIsViewing(true);
     setViewError(null);
-    setDecryptedContent(null);
+    setDecryptedContentForView(null);
     
     const content = await getDecryptedCredentialContent(credential.id);
     if (content) {
-      setDecryptedContent(content);
+      setDecryptedContentForView(content);
     } else {
-      setViewError("Could not decrypt credential content.");
+      setViewError("Could not decrypt credential content for viewing.");
     }
     setShowViewModal(true);
     setIsViewing(false);
+  };
+
+  const handleEdit = async () => {
+    setIsEditing(true);
+    setEditError(null);
+    setDecryptedContentForEdit(null);
+
+    const content = await getDecryptedCredentialContent(credential.id);
+    if (content !== null) {
+      setDecryptedContentForEdit(content);
+      setShowEditModal(true);
+    } else {
+      setEditError("Could not load credential content for editing.");
+      // Optionally, still show the modal to display the error or prevent modal opening.
+      // For now, we'll prevent modal if content fetch fails.
+      // Consider adding a toast message here.
+    }
+    setIsEditing(false);
   };
 
   const handleDelete = async () => {
@@ -56,7 +81,7 @@ export function CredentialItem({ credential }: CredentialItemProps) {
     // State update will remove item from list.
   };
   
-  const currentActionLoading = isLoadingCredentials || isViewing || isDeleting;
+  const currentActionLoading = isLoadingCredentials || isViewing || isDeleting || isEditing;
 
   return (
     <>
@@ -74,6 +99,9 @@ export function CredentialItem({ credential }: CredentialItemProps) {
           </div>
         </div>
         <div className="flex items-center space-x-1 shrink-0">
+          <Button variant="ghost" size="icon" onClick={handleEdit} disabled={currentActionLoading} aria-label="Edit credential">
+            {isEditing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4 text-primary" />}
+          </Button>
           <Button variant="ghost" size="icon" onClick={handleView} disabled={currentActionLoading} aria-label="View credential">
             {isViewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4 text-primary" />}
           </Button>
@@ -106,13 +134,37 @@ export function CredentialItem({ credential }: CredentialItemProps) {
           isOpen={showViewModal}
           onClose={() => {
             setShowViewModal(false);
-            setDecryptedContent(null);
+            setDecryptedContentForView(null);
             setViewError(null);
           }}
           credentialName={credential.name}
           credentialType={credential.type}
-          decryptedContent={decryptedContent}
+          decryptedContent={decryptedContentForView}
           error={viewError}
+        />
+      )}
+      {showEditModal && decryptedContentForEdit !== null && (
+        <EditCredentialModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setDecryptedContentForEdit(null);
+            setEditError(null);
+          }}
+          credential={{...credential, content: decryptedContentForEdit}}
+          error={editError}
+        />
+      )}
+       {showEditModal && decryptedContentForEdit === null && editError && ( // Handle error case for edit modal
+         <EditCredentialModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setDecryptedContentForEdit(null);
+            setEditError(null);
+          }}
+          credential={credential} // Pass original credential if content fetch failed
+          error={editError} // Pass the error to the modal
         />
       )}
     </>
