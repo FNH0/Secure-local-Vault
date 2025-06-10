@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Loader2, RotateCcw, ShieldQuestion, UserPlus, LogIn } from 'lucide-react';
+import { Eye, EyeOff, Loader2, RotateCcw, ShieldQuestion, UserPlus, LogIn, Users } from 'lucide-react';
 
 type LoginFormMode = 'login' | 'signup' | 'recoverPassword';
 
@@ -22,13 +23,14 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [existingUsernames, setExistingUsernames] = useState<string[]>([]);
   const { 
     login, 
     signup, 
     resetPasswordWithRecoveryPhrase, 
-    isAccountAvailable, // To check if we should default to signup or login based on any existing accounts
+    getAllUsernames,
     isLoading: authIsLoading,
-    activeUsername // To know if a user is already "known"
+    activeUsername: previouslyActiveUsername 
   } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
@@ -36,18 +38,26 @@ export function LoginForm() {
   const [currentMode, setCurrentMode] = useState<LoginFormMode>('login');
   const [initialModeDetermined, setInitialModeDetermined] = useState(false);
 
-  // Determine initial mode (login or signup)
   useEffect(() => {
     if (!authIsLoading && !initialModeDetermined) {
-      // This logic needs refinement. isAccountAvailable is async.
-      // For simplicity, if there's an activeUsername hint, default to login, else signup.
-      // A more robust way would be to check if ANY account exists.
-      // Or, always default to login and let user switch to signup.
-      // For now, let's default to login page.
       setCurrentMode('login'); 
       setInitialModeDetermined(true);
     }
-  }, [authIsLoading, initialModeDetermined, activeUsername]);
+  }, [authIsLoading, initialModeDetermined]);
+
+  useEffect(() => {
+    const fetchUsernames = async () => {
+      const users = await getAllUsernames();
+      setExistingUsernames(users);
+      if (previouslyActiveUsername && users.includes(previouslyActiveUsername)) {
+        setUsername(previouslyActiveUsername);
+      } else if (users.length > 0 && !previouslyActiveUsername) {
+        // Optionally pre-select the first user or leave blank
+        // setUsername(users[0]); 
+      }
+    };
+    fetchUsernames();
+  }, [getAllUsernames, previouslyActiveUsername]);
 
 
   const handleSubmit = async (event: FormEvent) => {
@@ -116,12 +126,11 @@ export function LoginForm() {
           description: 'You can now log in with your new password. Note: Files encrypted with your old password require the old password to be accessed.',
           duration: 9000,
         });
-        // Attempt to log in with the new password automatically
         const loginSuccess = await login(username, password);
         if (loginSuccess) {
             router.push('/vault');
         } else {
-            setCurrentMode('login'); // Go back to login form
+            setCurrentMode('login'); 
         }
       } else {
         toast({ title: 'Error', description: 'Failed to reset password. Please check your username, recovery phrase and try again.', variant: 'destructive' });
@@ -164,6 +173,22 @@ export function LoginForm() {
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-6">
+          {existingUsernames.length > 0 && currentMode === 'login' && (
+            <div className="space-y-2">
+              <Label htmlFor="select-username">Select Existing User</Label>
+              <Select onValueChange={(value) => setUsername(value)} defaultValue={username}>
+                <SelectTrigger id="select-username" className="bg-input border-primary/50 focus:ring-primary focus:border-primary">
+                  <SelectValue placeholder="Choose a user..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {existingUsernames.map(name => (
+                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="username">Username</Label>
             <Input
@@ -173,7 +198,7 @@ export function LoginForm() {
               onChange={(e) => setUsername(e.target.value.trim())}
               required
               className="bg-input border-primary/50 focus:ring-primary focus:border-primary"
-              placeholder="Enter your username"
+              placeholder={currentMode === 'login' && existingUsernames.length > 0 ? "Or type new username..." : "Enter your username"}
               autoComplete="username"
             />
           </div>
@@ -261,7 +286,6 @@ export function LoginForm() {
                 setCurrentMode('signup');
                 setPassword('');
                 setConfirmPassword('');
-                // Keep username if entered
               }}
             >
               <UserPlus className="mr-2 h-4 w-4" /> Create New Account
@@ -269,12 +293,11 @@ export function LoginForm() {
             <Button 
               type="button" 
               variant="link" 
-              className="text-sm text-primary/80 hover:text-primary -mt-2" // Adjust margin
+              className="text-sm text-primary/80 hover:text-primary -mt-2"
               onClick={() => {
                 setCurrentMode('recoverPassword');
                 setPassword('');
                 setConfirmPassword('');
-                // Keep username if entered
               }}
             >
               <ShieldQuestion className="mr-2 h-4 w-4" /> Forgot Password? / Recover
@@ -291,7 +314,6 @@ export function LoginForm() {
                 setPassword('');
                 setConfirmPassword('');
                 setRecoveryPhrase('');
-                // Keep username
               }}
             >
               {currentMode === 'signup' ? <LogIn className="mr-2 h-4 w-4"/> : <RotateCcw className="mr-2 h-4 w-4" />} 

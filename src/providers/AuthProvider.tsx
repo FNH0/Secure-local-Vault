@@ -21,7 +21,8 @@ interface AuthContextType {
   logout: () => void;
   signup: (username: string, password: string) => Promise<{success: boolean, message?: string}>;
   resetPasswordWithRecoveryPhrase: (username: string, phrase: string, newPassword: string) => Promise<boolean>;
-  isAccountAvailable: (username: string) => Promise<boolean>; // To check if a username is taken
+  isAccountAvailable: (username: string) => Promise<boolean>;
+  getAllUsernames: () => Promise<string[]>;
   isLoading: boolean;
 }
 
@@ -85,20 +86,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
 
-  // Check for active user on initial load
   useEffect(() => {
     setIsLoading(true);
     try {
       const storedActiveUser = localStorage.getItem(ACTIVE_USERNAME_KEY);
       if (storedActiveUser) {
-        // If there's an active user, we assume they were previously authenticated.
-        // For true session persistence with the derivedKey, it would need to be re-derived (e.g., by prompting for password or using biometrics).
-        // For this iteration, we'll just set the username and vaultId, but derivedKey will be null until login.
-        // This means user might be "known" but not fully "authenticated" with key until they login again.
         setActiveUsername(storedActiveUser);
         const vaultId = localStorage.getItem(getVaultIdKey(storedActiveUser));
-        setActiveUserVaultId(vaultId);
-        // derivedKey remains null, forcing login to get it.
+        if (vaultId) { // Ensure vaultId exists before setting
+          setActiveUserVaultId(vaultId);
+        } else {
+            // This case could happen if vaultId was somehow not set during signup for an existing user.
+            // Or if localStorage was manually tampered with.
+            console.warn(`Vault ID not found for active user: ${storedActiveUser}. User may need to re-authenticate or setup fully.`);
+            // Consider clearing active user if vaultId is crucial and missing.
+            // localStorage.removeItem(ACTIVE_USERNAME_KEY);
+            // setActiveUsername(null); 
+        }
       }
     } catch (error) {
       console.error("Error accessing localStorage during initial load:", error);
@@ -109,11 +113,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAccountAvailable = useCallback(async (username: string): Promise<boolean> => {
     try {
       const storedHash = localStorage.getItem(getPasswordHashKey(username));
-      return !storedHash; // Available if no hash stored for this username
+      return !storedHash; 
     } catch (error) {
       console.error("Error checking account availability:", error);
-      return false; // Assume not available on error
+      return false; 
     }
+  }, []);
+
+  const getAllUsernames = useCallback(async (): Promise<string[]> => {
+    const usernames: string[] = [];
+    try {
+      const prefix = 'fnh_vault_user_';
+      const suffix = '_password_hash';
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix) && key.endsWith(suffix)) {
+          const username = key.substring(prefix.length, key.length - suffix.length);
+          usernames.push(username);
+        }
+      }
+    } catch (error) {
+      console.error("Error retrieving all usernames:", error);
+    }
+    return usernames;
   }, []);
 
 
@@ -197,7 +219,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const storedHashKey = getPasswordHashKey(username);
-      if (!localStorage.getItem(storedHashKey)) { // Check if user exists
+      if (!localStorage.getItem(storedHashKey)) { 
          console.error("No account found for this username to reset password.");
          setIsLoading(false);
          return false;
@@ -214,13 +236,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       localStorage.setItem(storedHashKey, newHash);
       localStorage.setItem(getSaltKey(username), btoa(String.fromCharCode(...salt)));
-      // VaultId remains the same for the user.
+      
+      const userVaultId = localStorage.getItem(getVaultIdKey(username));
+      if (!userVaultId) {
+          // This should ideally not happen if an account exists, but good to check
+          console.error("Vault ID not found during password reset, cannot proceed.");
+          setIsLoading(false);
+          return false;
+      }
+      setActiveUserVaultId(userVaultId); // Ensure vaultId is set
 
       const key = await deriveKeyInternal(newPassword, salt);
       setDerivedKey(key);
-      setActiveUsername(username); // Ensure user is set as active after reset if they proceed
-      const userVaultId = localStorage.getItem(getVaultIdKey(username));
-      setActiveUserVaultId(userVaultId);
+      setActiveUsername(username); 
       localStorage.setItem(ACTIVE_USERNAME_KEY, username);
       setIsLoading(false);
       return true;
@@ -249,6 +277,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signup,
     resetPasswordWithRecoveryPhrase,
     isAccountAvailable,
+    getAllUsernames,
     isLoading,
   };
 
