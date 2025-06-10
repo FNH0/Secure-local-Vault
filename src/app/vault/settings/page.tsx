@@ -2,6 +2,7 @@
 'use client';
 
 import { FingerprintSettings } from '@/components/settings/FingerprintSettings';
+import { RecoveryPhraseSettings } from '@/components/settings/RecoveryPhraseSettings';
 import { Separator } from '@/components/ui/separator';
 
 export default function SettingsPage() {
@@ -13,6 +14,8 @@ export default function SettingsPage() {
       </div>
       <Separator />
       <FingerprintSettings />
+      <Separator />
+      <RecoveryPhraseSettings />
       {/* Additional settings sections can be added below */}
     </div>
   );
