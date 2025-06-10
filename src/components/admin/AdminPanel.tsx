@@ -6,7 +6,7 @@ import { useAuth, type UserDetailsForAdmin } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Trash2, ShieldCheck, ShieldAlert, Home } from 'lucide-react';
+import { Loader2, Trash2, ShieldCheck, ShieldAlert, Home, Package, KeyRound } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -20,6 +20,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import Link from 'next/link';
+
+function formatBytes(bytes: number, decimals = 2) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
 
 export function AdminPanel() {
   const { getAllUserDetailsForAdmin, deleteUserDataForAdmin, isLoading: authIsLoading } = useAuth();
@@ -74,8 +83,8 @@ export function AdminPanel() {
       <CardHeader>
         <CardTitle className="text-2xl font-headline text-primary">User Account Management</CardTitle>
         <CardDescription>
-          View all user profiles detected in this browser's local storage. 
-          Passwords are not displayed for security.
+          View user profiles and data summaries from this browser's local storage. 
+          Passwords are not displayed.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -87,7 +96,9 @@ export function AdminPanel() {
               <TableRow>
                 <TableHead>Username</TableHead>
                 <TableHead>Password Set</TableHead>
-                <TableHead>Vault ID</TableHead>
+                <TableHead><Package className="inline-block mr-1 h-4 w-4" />Files</TableHead>
+                <TableHead>Total Size</TableHead>
+                <TableHead><KeyRound className="inline-block mr-1 h-4 w-4" />Credentials</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -103,7 +114,9 @@ export function AdminPanel() {
                     )}
                     {user.hasPasswordSet ? "Yes" : "No"}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{user.vaultId || 'N/A'}</TableCell>
+                  <TableCell>{user.fileCount}</TableCell>
+                  <TableCell>{formatBytes(user.totalFileSize)}</TableCell>
+                  <TableCell>{user.credentialCount}</TableCell>
                   <TableCell className="text-right">
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -164,5 +177,3 @@ export function AdminPanel() {
     </Card>
   );
 }
-
-    

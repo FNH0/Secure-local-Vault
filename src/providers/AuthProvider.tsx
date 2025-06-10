@@ -17,11 +17,16 @@ import {
   getWebAuthnUserHandleKey
 } from '@/lib/constants';
 import * as bip39 from 'bip39';
+import type { FileMetadata, CredentialMetadata } from './VaultProvider'; // Import types from VaultProvider
+
 
 export interface UserDetailsForAdmin {
   username: string;
   hasPasswordSet: boolean;
   vaultId: string | null;
+  fileCount: number;
+  totalFileSize: number; // in bytes
+  credentialCount: number;
 }
 
 interface AuthContextType {
@@ -111,7 +116,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (vaultId) { 
           setActiveUserVaultId(vaultId);
         } else {
-            console.warn(`Vault ID not found for active user: ${storedActiveUser}. User may need to re-authenticate or setup fully.`);
+          const newVaultId = crypto.randomUUID();
+          localStorage.setItem(getVaultIdKey(storedActiveUser), newVaultId);
+          setActiveUserVaultId(newVaultId);
+          console.warn(`Vault ID not found for active user: ${storedActiveUser}. Generated a new one.`);
         }
       }
     } catch (error) {
@@ -158,15 +166,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const storedHash = localStorage.getItem(storedHashKey);
       const saltBase64 = localStorage.getItem(saltKey);
-      const userVaultId = localStorage.getItem(vaultIdKey);
+      let userVaultId = localStorage.getItem(vaultIdKey);
 
-      if (!storedHash || !saltBase64 || !userVaultId) {
+      if (!storedHash || !saltBase64) {
         console.error('Account data not found for this username.');
         setDerivedKey(null);
         setActiveUsername(null);
         setActiveUserVaultId(null);
         setIsLoading(false);
         return false;
+      }
+      
+      if (!userVaultId) {
+        userVaultId = crypto.randomUUID();
+        localStorage.setItem(vaultIdKey, userVaultId);
+        console.warn(`Vault ID not found during login for ${username}. Generated a new one.`);
       }
       
       const salt = Uint8Array.from(atob(saltBase64), c => c.charCodeAt(0));
@@ -247,11 +261,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(storedHashKey, newHash);
       localStorage.setItem(getSaltKey(username), btoa(String.fromCharCode(...salt)));
       
-      const userVaultId = localStorage.getItem(getVaultIdKey(username));
+      let userVaultId = localStorage.getItem(getVaultIdKey(username));
       if (!userVaultId) {
-          console.error("Vault ID not found during password reset, cannot proceed.");
-          setIsLoading(false);
-          return false;
+          userVaultId = crypto.randomUUID();
+          localStorage.setItem(getVaultIdKey(username), userVaultId);
+          console.warn(`Vault ID not found during password reset for ${username}. Generated a new one.`);
       }
       setActiveUserVaultId(userVaultId); 
 
@@ -273,17 +287,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setActiveUsername(null);
     setActiveUserVaultId(null);
     localStorage.removeItem(ACTIVE_USERNAME_KEY);
-    router.push('/login');
-  }, [router]);
+    // No router.push here; let individual pages/layouts handle redirection if needed.
+    // This makes logout more flexible, e.g. admin panel logout won't redirect to user login.
+  }, []);
 
   // Admin panel functions
   const getAllUserDetailsForAdmin = useCallback(async (): Promise<UserDetailsForAdmin[]> => {
     const users: UserDetailsForAdmin[] = [];
-    const usernames = await getAllUsernames(); // Use existing function to get all usernames
+    const usernames = await getAllUsernames(); 
     for (const username of usernames) {
       const hasPasswordSet = !!localStorage.getItem(getPasswordHashKey(username));
       const vaultId = localStorage.getItem(getVaultIdKey(username));
-      users.push({ username, hasPasswordSet, vaultId });
+      
+      let fileCount = 0;
+      let totalFileSize = 0;
+      let credentialCount = 0;
+
+      if (vaultId) {
+        try {
+          const filesMetadataJson = localStorage.getItem(getFilesMetadataKey(vaultId));
+          if (filesMetadataJson) {
+            const filesMetadata: FileMetadata[] = JSON.parse(filesMetadataJson);
+            fileCount = filesMetadata.length;
+            totalFileSize = filesMetadata.reduce((sum, file) => sum + file.size, 0);
+          }
+
+          const credentialsMetadataJson = localStorage.getItem(getCredentialsMetadataKey(vaultId));
+          if (credentialsMetadataJson) {
+            const credentialsMetadata: CredentialMetadata[] = JSON.parse(credentialsMetadataJson);
+            credentialCount = credentialsMetadata.length;
+          }
+        } catch (e) {
+          console.error(`Error parsing metadata for user ${username}, vaultId ${vaultId}:`, e);
+        }
+      }
+      
+      users.push({ 
+        username, 
+        hasPasswordSet, 
+        vaultId,
+        fileCount,
+        totalFileSize,
+        credentialCount 
+      });
     }
     return users;
   }, [getAllUsernames]);
@@ -321,7 +367,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // If the deleted user is the currently active user, log them out
       if (activeUsername === usernameToDelete) {
-        logout();
+        logout(); 
+        // After logging out active user, router.push might be needed if on a protected page.
+        // However, admin panel itself is not auth-provider protected, but has its own auth.
       }
       
       setIsLoading(false);
@@ -359,5 +407,3 @@ export function useAuth() {
   }
   return context;
 }
-
-    
