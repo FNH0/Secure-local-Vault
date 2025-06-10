@@ -22,6 +22,13 @@ export interface FileMetadata {
   createdAt: string;
 }
 
+export interface PasswordCredentialContentStructure {
+  username?: string;
+  password?: string;
+  url?: string;
+  note?: string;
+}
+
 export interface CredentialMetadata {
   id: string;
   name: string;
@@ -31,21 +38,21 @@ export interface CredentialMetadata {
 }
 
 export interface DecryptedCredential extends CredentialMetadata {
-  content: string; 
+  content: string | PasswordCredentialContentStructure; // Content can be string or structured object
 }
 
 interface VaultContextType {
   files: FileMetadata[];
-  uploadFile: (file: File) => Promise<boolean>; // Return boolean for success
+  uploadFile: (file: File) => Promise<boolean>;
   downloadFile: (fileId: string) => Promise<{ name: string; blob: Blob } | null>;
-  deleteFile: (fileId: string) => Promise<boolean>; // Return boolean for success
+  deleteFile: (fileId: string) => Promise<boolean>;
   isLoading: boolean; 
 
   credentials: CredentialMetadata[];
-  addCredential: (name: string, type: string, content: string) => Promise<boolean>; // Return boolean for success
-  updateCredential: (credentialId: string, newName: string, newType: string, newContent: string) => Promise<boolean>; // Return boolean for success
-  getDecryptedCredentialContent: (credentialId: string) => Promise<string | null>;
-  deleteCredential: (credentialId: string) => Promise<boolean>; // Return boolean for success
+  addCredential: (name: string, type: string, content: string) => Promise<boolean>; // content is string (can be JSON string)
+  updateCredential: (credentialId: string, newName: string, newType: string, newContent: string) => Promise<boolean>; // newContent is string
+  getDecryptedCredentialContent: (credentialId: string) => Promise<string | PasswordCredentialContentStructure | null>;
+  deleteCredential: (credentialId: string) => Promise<boolean>;
   isLoadingCredentials: boolean; 
 }
 
@@ -108,7 +115,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       loadFilesMetadata();
       loadCredentialsMetadata();
     } else {
-      // Clear data if not authenticated or no vaultId
       setFiles([]);
       setCredentials([]);
     }
@@ -241,6 +247,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
     setIsLoadingCredentials(true);
     try {
+      // Content is already a string (could be plain or JSON stringified by the form)
       const contentBuffer = new TextEncoder().encode(content);
       const { encryptedData, iv } = await encryptData(contentBuffer, derivedKey);
 
@@ -278,8 +285,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
     setIsLoadingCredentials(true);
     try {
-      const contentBuffer = new TextEncoder().encode(newContent);
-      const { encryptedData, iv } = await encryptData(contentBuffer, derivedKey); // Re-encrypt content, new IV generated
+      const contentBuffer = new TextEncoder().encode(newContent); // newContent is already string (plain or JSON string)
+      const { encryptedData, iv } = await encryptData(contentBuffer, derivedKey);
 
       const encryptedContentBase64 = arrayBufferToBase64(encryptedData);
       const newIvBase64 = uint8ArrayToBase64(iv);
@@ -293,7 +300,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
             name: newName,
             type: newType,
             ivBase64: newIvBase64,
-            // createdAt remains the same, or you could add an updatedAt field
           };
         }
         return cred;
@@ -312,7 +318,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const getDecryptedCredentialContent = async (credentialId: string): Promise<string | null> => {
+  const getDecryptedCredentialContent = async (credentialId: string): Promise<string | PasswordCredentialContentStructure | null> => {
     if (!derivedKey || !activeUserVaultId) {
       toast({ title: "Error", description: "Decryption key or vault ID not available.", variant: "destructive" });
       return null;
@@ -335,8 +341,19 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       const iv = base64ToUint8Array(metadata.ivBase64);
 
       const decryptedBuffer = await decryptData(encryptedContent, derivedKey, iv);
-      const decryptedContent = new TextDecoder().decode(decryptedBuffer);
-      return decryptedContent;
+      const decryptedString = new TextDecoder().decode(decryptedBuffer);
+
+      if (metadata.type === "Password") {
+        try {
+          const structuredContent = JSON.parse(decryptedString) as PasswordCredentialContentStructure;
+          return structuredContent;
+        } catch (parseError) {
+          console.error("Failed to parse Password content as JSON, returning raw string:", parseError);
+          // Fallback for old data or if JSON is malformed
+          return decryptedString; 
+        }
+      }
+      return decryptedString;
     } catch (error) {
       console.error('Get decrypted credential error:', error);
       toast({ title: "Error", description: "Failed to decrypt credential.", variant: "destructive" });
