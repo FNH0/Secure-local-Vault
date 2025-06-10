@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useState } from 'react'; // Added import
 
 interface FileItemProps {
   file: FileMetadata;
