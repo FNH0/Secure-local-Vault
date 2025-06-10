@@ -1,15 +1,15 @@
 
 'use client';
 
-import { FileText, Settings } from 'lucide-react'; 
+import { FileText, Settings, KeyRound } from 'lucide-react'; 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { name: 'All Files', href: '/vault', icon: FileText },
+  { name: 'Credentials', href: '/vault/credentials', icon: KeyRound },
   { name: 'Settings', href: '/vault/settings', icon: Settings },
-  // Add more items here if needed, e.g., { name: 'Recents', href: '/vault/recents', icon: Clock }
 ];
 
 export function VaultSidebar() {
