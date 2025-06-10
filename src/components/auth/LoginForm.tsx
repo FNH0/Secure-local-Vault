@@ -10,40 +10,58 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Loader2, RotateCcw, ShieldQuestion } from 'lucide-react';
+import { Eye, EyeOff, Loader2, RotateCcw, ShieldQuestion, UserPlus, LogIn } from 'lucide-react';
 
-type LoginFormMode = 'login' | 'setPassword' | 'recoverPassword';
+type LoginFormMode = 'login' | 'signup' | 'recoverPassword';
 
 export function LoginForm() {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [recoveryPhrase, setRecoveryPhrase] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login, setPassword: setNewPasswordAuth, resetPasswordWithRecoveryPhrase, isPasswordSet, isLoading: authIsLoading } = useAuth();
+  const { 
+    login, 
+    signup, 
+    resetPasswordWithRecoveryPhrase, 
+    isAccountAvailable, // To check if we should default to signup or login based on any existing accounts
+    isLoading: authIsLoading,
+    activeUsername // To know if a user is already "known"
+  } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
   const [currentMode, setCurrentMode] = useState<LoginFormMode>('login');
-  const [isCheckingPasswordStatus, setIsCheckingPasswordStatus] = useState(true);
+  const [initialModeDetermined, setInitialModeDetermined] = useState(false);
 
+  // Determine initial mode (login or signup)
   useEffect(() => {
-    if (!authIsLoading) {
-      if (isPasswordSet) {
-        setCurrentMode('login');
-      } else {
-        setCurrentMode('setPassword');
-      }
-      setIsCheckingPasswordStatus(false);
+    if (!authIsLoading && !initialModeDetermined) {
+      // This logic needs refinement. isAccountAvailable is async.
+      // For simplicity, if there's an activeUsername hint, default to login, else signup.
+      // A more robust way would be to check if ANY account exists.
+      // Or, always default to login and let user switch to signup.
+      // For now, let's default to login page.
+      setCurrentMode('login'); 
+      setInitialModeDetermined(true);
     }
-  }, [isPasswordSet, authIsLoading]);
+  }, [authIsLoading, initialModeDetermined, activeUsername]);
+
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setIsSubmitting(true);
 
-    if (currentMode === 'setPassword') {
+    if (!username.trim() && (currentMode === 'login' || currentMode === 'signup' || currentMode === 'recoverPassword')) {
+        toast({ title: 'Error', description: 'Username is required.', variant: 'destructive' });
+        setIsSubmitting(false);
+        return;
+    }
+
+
+    if (currentMode === 'signup') {
       if (password !== confirmPassword) {
         toast({ title: 'Error', description: 'Passwords do not match.', variant: 'destructive' });
         setIsSubmitting(false);
@@ -54,20 +72,20 @@ export function LoginForm() {
         setIsSubmitting(false);
         return;
       }
-      const success = await setNewPasswordAuth(password);
-      if (success) {
-        toast({ title: 'Success', description: 'Vault password set. Welcome!' });
+      const result = await signup(username, password);
+      if (result.success) {
+        toast({ title: 'Account Created!', description: 'Welcome! Your secure vault is ready.' });
         router.push('/vault');
       } else {
-        toast({ title: 'Error', description: 'Failed to set password. Please try again.', variant: 'destructive' });
+        toast({ title: 'Error', description: result.message || 'Failed to create account. Please try again.', variant: 'destructive' });
       }
     } else if (currentMode === 'login') {
-      const success = await login(password);
+      const success = await login(username, password);
       if (success) {
         toast({ title: 'Success', description: 'Logged in successfully.' });
         router.push('/vault');
       } else {
-        toast({ title: 'Error', description: 'Invalid password. Please try again.', variant: 'destructive' });
+        toast({ title: 'Error', description: 'Invalid username or password.', variant: 'destructive' });
       }
     } else if (currentMode === 'recoverPassword') {
       if (!recoveryPhrase.trim()) {
@@ -91,22 +109,28 @@ export function LoginForm() {
         setIsSubmitting(false);
         return;
       }
-      const success = await resetPasswordWithRecoveryPhrase(recoveryPhrase.trim(), password);
+      const success = await resetPasswordWithRecoveryPhrase(username, recoveryPhrase.trim(), password);
       if (success) {
         toast({ 
           title: 'Password Reset Successful', 
           description: 'You can now log in with your new password. Note: Files encrypted with your old password require the old password to be accessed.',
-          duration: 9000, // Longer duration for important message
+          duration: 9000,
         });
-        router.push('/vault');
+        // Attempt to log in with the new password automatically
+        const loginSuccess = await login(username, password);
+        if (loginSuccess) {
+            router.push('/vault');
+        } else {
+            setCurrentMode('login'); // Go back to login form
+        }
       } else {
-        toast({ title: 'Error', description: 'Failed to reset password. Please check your recovery phrase and try again.', variant: 'destructive' });
+        toast({ title: 'Error', description: 'Failed to reset password. Please check your username, recovery phrase and try again.', variant: 'destructive' });
       }
     }
     setIsSubmitting(false);
   };
 
-  if (isCheckingPasswordStatus) {
+  if (authIsLoading && !initialModeDetermined) {
     return (
       <div className="flex justify-center items-center h-32">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -115,21 +139,21 @@ export function LoginForm() {
   }
 
   const getTitle = () => {
-    if (currentMode === 'setPassword') return 'Create Your Secure Vault';
-    if (currentMode === 'recoverPassword') return 'Recover Your Vault';
-    return 'Unlock Vault';
+    if (currentMode === 'signup') return 'Create Your Secure Account';
+    if (currentMode === 'recoverPassword') return 'Recover Your Vault Account';
+    return 'Unlock Your Vault';
   };
 
   const getDescription = () => {
-    if (currentMode === 'setPassword') return 'Set a strong password to protect your vault.';
-    if (currentMode === 'recoverPassword') return 'Enter your 12-word recovery phrase and set a new password.';
-    return 'Enter your password to access your secure files.';
+    if (currentMode === 'signup') return 'Choose a username and a strong password to protect your vault.';
+    if (currentMode === 'recoverPassword') return 'Enter your username, 12-word recovery phrase, and set a new password.';
+    return 'Enter your username and password to access your secure files.';
   };
   
   const getButtonText = () => {
-    if (currentMode === 'setPassword') return 'Create Vault';
+    if (currentMode === 'signup') return 'Create Account & Login';
     if (currentMode === 'recoverPassword') return 'Reset Password & Login';
-    return 'Unlock';
+    return 'Login';
   }
 
   return (
@@ -140,6 +164,20 @@ export function LoginForm() {
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value.trim())}
+              required
+              className="bg-input border-primary/50 focus:ring-primary focus:border-primary"
+              placeholder="Enter your username"
+              autoComplete="username"
+            />
+          </div>
+
           {currentMode === 'recoverPassword' && (
             <div className="space-y-2">
               <Label htmlFor="recovery-phrase">12-Word Recovery Phrase</Label>
@@ -166,6 +204,7 @@ export function LoginForm() {
                 required
                 className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
                 placeholder={currentMode === 'recoverPassword' ? 'Enter new password' : 'Enter your password'}
+                autoComplete={currentMode === 'login' ? "current-password" : "new-password"}
               />
               <Button
                 type="button"
@@ -178,7 +217,7 @@ export function LoginForm() {
               </Button>
             </div>
           </div>
-          {(currentMode === 'setPassword' || currentMode === 'recoverPassword') && (
+          {(currentMode === 'signup' || currentMode === 'recoverPassword') && (
             <div className="space-y-2">
               <Label htmlFor="confirm-password">{currentMode === 'recoverPassword' ? 'Confirm New Password' : 'Confirm Password'}</Label>
               <div className="relative">
@@ -190,6 +229,7 @@ export function LoginForm() {
                   required
                   className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
                   placeholder={currentMode === 'recoverPassword' ? 'Confirm new password' : 'Confirm your password'}
+                  autoComplete="new-password"
                 />
                  <Button
                   type="button"
@@ -206,26 +246,42 @@ export function LoginForm() {
           )}
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button type="submit" className="w-full" disabled={isSubmitting || authIsLoading}>
+            {(isSubmitting || authIsLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {getButtonText()}
           </Button>
           
-          {currentMode === 'login' && isPasswordSet && (
+          {currentMode === 'login' && (
+            <>
             <Button 
               type="button" 
               variant="link" 
               className="text-sm text-primary/80 hover:text-primary"
               onClick={() => {
+                setCurrentMode('signup');
+                setPassword('');
+                setConfirmPassword('');
+                // Keep username if entered
+              }}
+            >
+              <UserPlus className="mr-2 h-4 w-4" /> Create New Account
+            </Button>
+            <Button 
+              type="button" 
+              variant="link" 
+              className="text-sm text-primary/80 hover:text-primary -mt-2" // Adjust margin
+              onClick={() => {
                 setCurrentMode('recoverPassword');
                 setPassword('');
                 setConfirmPassword('');
+                // Keep username if entered
               }}
             >
-              <ShieldQuestion className="mr-2 h-4 w-4" /> Forgot Password? / Recover Account
+              <ShieldQuestion className="mr-2 h-4 w-4" /> Forgot Password? / Recover
             </Button>
+            </>
           )}
-           {currentMode === 'recoverPassword' && (
+           {(currentMode === 'signup' || currentMode === 'recoverPassword') && (
             <Button 
               type="button" 
               variant="link" 
@@ -235,9 +291,11 @@ export function LoginForm() {
                 setPassword('');
                 setConfirmPassword('');
                 setRecoveryPhrase('');
+                // Keep username
               }}
             >
-              <RotateCcw className="mr-2 h-4 w-4" /> Back to Login
+              {currentMode === 'signup' ? <LogIn className="mr-2 h-4 w-4"/> : <RotateCcw className="mr-2 h-4 w-4" />} 
+              Back to Login
             </Button>
           )}
         </CardFooter>

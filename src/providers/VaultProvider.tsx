@@ -5,7 +5,12 @@ import type React from 'react';
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthProvider';
 import { encryptData, decryptData, arrayBufferToBase64, base64ToArrayBuffer, uint8ArrayToBase64, base64ToUint8Array } from '@/lib/cryptoUtils';
-import { LOCAL_STORAGE_FILES_METADATA_KEY, LOCAL_STORAGE_FILE_PREFIX, LOCAL_STORAGE_CREDENTIALS_METADATA_KEY, LOCAL_STORAGE_CREDENTIAL_CONTENT_PREFIX } from '@/lib/constants';
+import { 
+  getFilesMetadataKey, 
+  getFileKeyPrefix, 
+  getCredentialsMetadataKey, 
+  getCredentialContentPrefix 
+} from '@/lib/constants';
 import { useToast } from '@/hooks/use-toast';
 
 export interface FileMetadata {
@@ -13,20 +18,20 @@ export interface FileMetadata {
   name: string;
   type: string;
   size: number;
-  ivBase64: string; // Store IV as base64 string
+  ivBase64: string; 
   createdAt: string;
 }
 
 export interface CredentialMetadata {
   id: string;
   name: string;
-  type: string; // e.g., "Password", "API Key", "Secure Note"
+  type: string; 
   createdAt: string;
-  ivBase64: string; // IV for encrypting the credential's content
+  ivBase64: string; 
 }
 
 export interface DecryptedCredential extends CredentialMetadata {
-  content: string; // The decrypted content
+  content: string; 
 }
 
 interface VaultContextType {
@@ -34,19 +39,19 @@ interface VaultContextType {
   uploadFile: (file: File) => Promise<void>;
   downloadFile: (fileId: string) => Promise<{ name: string; blob: Blob } | null>;
   deleteFile: (fileId: string) => Promise<void>;
-  isLoading: boolean; // General loading for files
+  isLoading: boolean; 
 
   credentials: CredentialMetadata[];
   addCredential: (name: string, type: string, content: string) => Promise<void>;
   getDecryptedCredentialContent: (credentialId: string) => Promise<string | null>;
   deleteCredential: (credentialId: string) => Promise<void>;
-  isLoadingCredentials: boolean; // Specific loading for credentials
+  isLoadingCredentials: boolean; 
 }
 
 const VaultContext = createContext<VaultContextType | undefined>(undefined);
 
 export function VaultProvider({ children }: { children: React.ReactNode }) {
-  const { derivedKey, isAuthenticated } = useAuth();
+  const { derivedKey, isAuthenticated, activeUserVaultId } = useAuth();
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [credentials, setCredentials] = useState<CredentialMetadata[]>([]);
@@ -54,10 +59,13 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
 
   const loadFilesMetadata = useCallback(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !activeUserVaultId) {
+      setFiles([]);
+      return;
+    }
     setIsLoading(true);
     try {
-      const metadataJson = localStorage.getItem(LOCAL_STORAGE_FILES_METADATA_KEY);
+      const metadataJson = localStorage.getItem(getFilesMetadataKey(activeUserVaultId));
       if (metadataJson) {
         setFiles(JSON.parse(metadataJson));
       } else {
@@ -70,13 +78,16 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, toast]);
+  }, [isAuthenticated, activeUserVaultId, toast]);
 
   const loadCredentialsMetadata = useCallback(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !activeUserVaultId) {
+      setCredentials([]);
+      return;
+    }
     setIsLoadingCredentials(true);
     try {
-      const metadataJson = localStorage.getItem(LOCAL_STORAGE_CREDENTIALS_METADATA_KEY);
+      const metadataJson = localStorage.getItem(getCredentialsMetadataKey(activeUserVaultId));
       if (metadataJson) {
         setCredentials(JSON.parse(metadataJson));
       } else {
@@ -89,16 +100,23 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoadingCredentials(false);
     }
-  }, [isAuthenticated, toast]);
+  }, [isAuthenticated, activeUserVaultId, toast]);
 
   useEffect(() => {
-    loadFilesMetadata();
-    loadCredentialsMetadata();
-  }, [loadFilesMetadata, loadCredentialsMetadata]);
+    if (isAuthenticated && activeUserVaultId) {
+      loadFilesMetadata();
+      loadCredentialsMetadata();
+    } else {
+      // Clear data if not authenticated or no vaultId
+      setFiles([]);
+      setCredentials([]);
+    }
+  }, [isAuthenticated, activeUserVaultId, loadFilesMetadata, loadCredentialsMetadata]);
 
   const saveFilesMetadata = (updatedFiles: FileMetadata[]) => {
+    if (!activeUserVaultId) return;
     try {
-      localStorage.setItem(LOCAL_STORAGE_FILES_METADATA_KEY, JSON.stringify(updatedFiles));
+      localStorage.setItem(getFilesMetadataKey(activeUserVaultId), JSON.stringify(updatedFiles));
       setFiles(updatedFiles);
     } catch (error) {
       console.error("Error saving files metadata:", error);
@@ -107,8 +125,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   };
 
   const saveCredentialsMetadata = (updatedCredentials: CredentialMetadata[]) => {
+    if (!activeUserVaultId) return;
     try {
-      localStorage.setItem(LOCAL_STORAGE_CREDENTIALS_METADATA_KEY, JSON.stringify(updatedCredentials));
+      localStorage.setItem(getCredentialsMetadataKey(activeUserVaultId), JSON.stringify(updatedCredentials));
       setCredentials(updatedCredentials);
     } catch (error) {
       console.error("Error saving credentials metadata:", error);
@@ -117,8 +136,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   };
 
   const uploadFile = async (file: File) => {
-    if (!derivedKey) {
-      toast({ title: "Error", description: "Encryption key not available. Please log in again.", variant: "destructive"});
+    if (!derivedKey || !activeUserVaultId) {
+      toast({ title: "Error", description: "Encryption key or vault ID not available. Please log in again.", variant: "destructive"});
       return;
     }
     setIsLoading(true);
@@ -130,7 +149,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       const encryptedDataBase64 = arrayBufferToBase64(encryptedData);
       const ivBase64 = uint8ArrayToBase64(iv);
 
-      localStorage.setItem(`${LOCAL_STORAGE_FILE_PREFIX}${fileId}`, encryptedDataBase64);
+      localStorage.setItem(`${getFileKeyPrefix(activeUserVaultId)}${fileId}`, encryptedDataBase64);
       
       const newFileMetadata: FileMetadata = {
         id: fileId,
@@ -151,8 +170,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   };
 
   const downloadFile = async (fileId: string): Promise<{ name: string; blob: Blob } | null> => {
-    if (!derivedKey) {
-      toast({ title: "Error", description: "Decryption key not available. Please log in again.", variant: "destructive"});
+    if (!derivedKey || !activeUserVaultId) {
+      toast({ title: "Error", description: "Decryption key or vault ID not available. Please log in again.", variant: "destructive"});
       return null;
     }
     setIsLoading(true);
@@ -163,7 +182,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
 
-      const encryptedDataBase64 = localStorage.getItem(`${LOCAL_STORAGE_FILE_PREFIX}${fileId}`);
+      const encryptedDataBase64 = localStorage.getItem(`${getFileKeyPrefix(activeUserVaultId)}${fileId}`);
       if (!encryptedDataBase64) {
         toast({ title: "Error", description: "File data not found.", variant: "destructive"});
         return null;
@@ -175,7 +194,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       const decryptedData = await decryptData(encryptedData, derivedKey, iv);
       const blob = new Blob([decryptedData], { type: metadata.type });
       
-      // Removed toast for ready to download to avoid too many toasts if used for preview
       return { name: metadata.name, blob };
     } catch (error) {
       console.error('File download error:', error);
@@ -187,9 +205,10 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteFile = async (fileId: string) => {
+    if (!activeUserVaultId) return;
     setIsLoading(true);
     try {
-      localStorage.removeItem(`${LOCAL_STORAGE_FILE_PREFIX}${fileId}`);
+      localStorage.removeItem(`${getFileKeyPrefix(activeUserVaultId)}${fileId}`);
       const updatedFiles = files.filter(f => f.id !== fileId);
       saveFilesMetadata(updatedFiles);
       const fileName = files.find(f => f.id === fileId)?.name || "File";
@@ -202,10 +221,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Credential Management
   const addCredential = async (name: string, type: string, content: string) => {
-    if (!derivedKey) {
-      toast({ title: "Error", description: "Encryption key not available.", variant: "destructive" });
+    if (!derivedKey || !activeUserVaultId) {
+      toast({ title: "Error", description: "Encryption key or vault ID not available.", variant: "destructive" });
       return;
     }
     setIsLoadingCredentials(true);
@@ -217,7 +235,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       const encryptedContentBase64 = arrayBufferToBase64(encryptedData);
       const ivBase64 = uint8ArrayToBase64(iv);
 
-      localStorage.setItem(`${LOCAL_STORAGE_CREDENTIAL_CONTENT_PREFIX}${credentialId}`, encryptedContentBase64);
+      localStorage.setItem(`${getCredentialContentPrefix(activeUserVaultId)}${credentialId}`, encryptedContentBase64);
 
       const newCredentialMetadata: CredentialMetadata = {
         id: credentialId,
@@ -237,8 +255,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getDecryptedCredentialContent = async (credentialId: string): Promise<string | null> => {
-    if (!derivedKey) {
-      toast({ title: "Error", description: "Decryption key not available.", variant: "destructive" });
+    if (!derivedKey || !activeUserVaultId) {
+      toast({ title: "Error", description: "Decryption key or vault ID not available.", variant: "destructive" });
       return null;
     }
     setIsLoadingCredentials(true);
@@ -249,7 +267,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
 
-      const encryptedContentBase64 = localStorage.getItem(`${LOCAL_STORAGE_CREDENTIAL_CONTENT_PREFIX}${credentialId}`);
+      const encryptedContentBase64 = localStorage.getItem(`${getCredentialContentPrefix(activeUserVaultId)}${credentialId}`);
       if (!encryptedContentBase64) {
         toast({ title: "Error", description: "Credential content not found.", variant: "destructive" });
         return null;
@@ -271,9 +289,10 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   };
   
   const deleteCredential = async (credentialId: string) => {
+    if (!activeUserVaultId) return;
     setIsLoadingCredentials(true);
     try {
-      localStorage.removeItem(`${LOCAL_STORAGE_CREDENTIAL_CONTENT_PREFIX}${credentialId}`);
+      localStorage.removeItem(`${getCredentialContentPrefix(activeUserVaultId)}${credentialId}`);
       const updatedCredentials = credentials.filter(c => c.id !== credentialId);
       saveCredentialsMetadata(updatedCredentials);
       const credentialName = credentials.find(c => c.id === credentialId)?.name || "Credential";
