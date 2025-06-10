@@ -41,6 +41,12 @@ export interface DecryptedCredential extends CredentialMetadata {
   content: string | PasswordCredentialContentStructure; // Content can be string or structured object
 }
 
+interface CSVImportResult {
+  successCount: number;
+  errorCount: number;
+  errors: string[];
+}
+
 interface VaultContextType {
   files: FileMetadata[];
   uploadFile: (file: File) => Promise<boolean>;
@@ -53,10 +59,32 @@ interface VaultContextType {
   updateCredential: (credentialId: string, newName: string, newType: string, newContent: string) => Promise<boolean>; // newContent is string
   getDecryptedCredentialContent: (credentialId: string) => Promise<string | PasswordCredentialContentStructure | null>;
   deleteCredential: (credentialId: string) => Promise<boolean>;
+  importCredentialsFromCSV: (csvFile: File) => Promise<CSVImportResult>; // New method
   isLoadingCredentials: boolean; 
 }
 
 const VaultContext = createContext<VaultContextType | undefined>(undefined);
+
+// Simple CSV parser
+function parseCSV(csvText: string): Array<Record<string, string>> {
+    const lines = csvText.split(/\r\n|\n|\r/); // Handle different line endings
+    if (lines.length < 2) return []; // Need at least header and one data line
+
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const data = [];
+
+    for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue; // Skip empty lines
+        const values = lines[i].split(',');
+        const entry: Record<string, string> = {};
+        for (let j = 0; j < headers.length; j++) {
+            entry[headers[j]] = values[j] ? values[j].trim() : '';
+        }
+        data.push(entry);
+    }
+    return data;
+}
+
 
 export function VaultProvider({ children }: { children: React.ReactNode }) {
   const { derivedKey, isAuthenticated, activeUserVaultId } = useAuth();
@@ -240,43 +268,60 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const addCredential = async (name: string, type: string, content: string): Promise<boolean> => {
+  const addCredentialInternal = async (name: string, type: string, content: string, currentCredentials: CredentialMetadata[]): Promise<CredentialMetadata | null> => {
     if (!derivedKey || !activeUserVaultId) {
-      toast({ title: "Error", description: "Encryption key or vault ID not available.", variant: "destructive" });
-      return false;
+        // This internal function shouldn't toast directly, let the caller handle it.
+        console.error("Encryption key or vault ID not available for addCredentialInternal.");
+        return null;
     }
-    setIsLoadingCredentials(true);
     try {
-      // Content is already a string (could be plain or JSON stringified by the form)
-      const contentBuffer = new TextEncoder().encode(content);
-      const { encryptedData, iv } = await encryptData(contentBuffer, derivedKey);
+        const contentBuffer = new TextEncoder().encode(content);
+        const { encryptedData, iv } = await encryptData(contentBuffer, derivedKey);
 
-      const credentialId = crypto.randomUUID();
-      const encryptedContentBase64 = arrayBufferToBase64(encryptedData);
-      const ivBase64 = uint8ArrayToBase64(iv);
+        const credentialId = crypto.randomUUID();
+        const encryptedContentBase64 = arrayBufferToBase64(encryptedData);
+        const ivBase64 = uint8ArrayToBase64(iv);
 
-      localStorage.setItem(`${getCredentialContentPrefix(activeUserVaultId)}${credentialId}`, encryptedContentBase64);
+        localStorage.setItem(`${getCredentialContentPrefix(activeUserVaultId)}${credentialId}`, encryptedContentBase64);
 
-      const newCredentialMetadata: CredentialMetadata = {
-        id: credentialId,
-        name,
-        type,
-        createdAt: new Date().toISOString(),
-        ivBase64,
-      };
-      const success = saveCredentialsMetadata([...credentials, newCredentialMetadata]);
-      if (success) {
-        toast({ title: "Success", description: `Credential "${name}" added successfully.` });
-      }
-      return success;
+        const newCredentialMetadata: CredentialMetadata = {
+            id: credentialId,
+            name,
+            type,
+            createdAt: new Date().toISOString(),
+            ivBase64,
+        };
+        return newCredentialMetadata;
     } catch (error) {
-      console.error('Add credential error:', error);
-      toast({ title: "Error", description: `Failed to add credential "${name}".`, variant: "destructive" });
-      return false;
-    } finally {
-      setIsLoadingCredentials(false);
+        console.error('Internal add credential error:', error);
+        return null;
     }
   };
+
+
+  const addCredential = async (name: string, type: string, content: string): Promise<boolean> => {
+    setIsLoadingCredentials(true);
+    try {
+        const newCredential = await addCredentialInternal(name, type, content, credentials);
+        if (newCredential) {
+            const success = saveCredentialsMetadata([...credentials, newCredential]);
+            if (success) {
+                toast({ title: "Success", description: `Credential "${name}" added successfully.` });
+            }
+            return success;
+        }
+        toast({ title: "Error", description: `Failed to add credential "${name}". Key or vault ID missing.`, variant: "destructive" });
+        return false;
+    } catch (error) {
+        // This catch is mostly for unexpected errors in this wrapper, addCredentialInternal handles its own try/catch.
+        console.error('Add credential wrapper error:', error);
+        toast({ title: "Error", description: `Failed to add credential "${name}".`, variant: "destructive" });
+        return false;
+    } finally {
+        setIsLoadingCredentials(false);
+    }
+  };
+  
 
   const updateCredential = async (credentialId: string, newName: string, newType: string, newContent: string): Promise<boolean> => {
     if (!derivedKey || !activeUserVaultId) {
@@ -349,7 +394,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           return structuredContent;
         } catch (parseError) {
           console.error("Failed to parse Password content as JSON, returning raw string:", parseError);
-          // Fallback for old data or if JSON is malformed
           return decryptedString; 
         }
       }
@@ -383,6 +427,72 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       setIsLoadingCredentials(false);
     }
   };
+
+  const importCredentialsFromCSV = async (csvFile: File): Promise<CSVImportResult> => {
+    if (!derivedKey || !activeUserVaultId) {
+      return { successCount: 0, errorCount: 1, errors: ["Encryption key or vault ID not available. Please log in again."] };
+    }
+    setIsLoadingCredentials(true);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+    let tempCredentials = [...credentials]; // Work on a copy for batch update
+
+    try {
+      const csvText = await csvFile.text();
+      const parsedData = parseCSV(csvText);
+
+      if (parsedData.length === 0) {
+        errors.push("CSV file is empty or has no data rows after the header.");
+        errorCount = 1; // Consider this as one file-level error
+      }
+
+      for (let i = 0; i < parsedData.length; i++) {
+        const row = parsedData[i];
+        const rowNumber = i + 2; // +1 for 0-index, +1 for header row
+
+        const name = row.name;
+        const password = row.password;
+        
+        if (!name || !password) {
+          errors.push(`Row ${rowNumber}: Missing required 'name' or 'password'. Skipping.`);
+          errorCount++;
+          continue;
+        }
+
+        const url = row.url || row.website || '';
+        const username = row.username || row.login || '';
+        const note = row.notes || row.note || '';
+
+        const credentialContent: PasswordCredentialContentStructure = { username, password, url, note };
+        const contentString = JSON.stringify(credentialContent);
+        
+        const newCredentialMeta = await addCredentialInternal(name, "Password", contentString, tempCredentials);
+        
+        if (newCredentialMeta) {
+          tempCredentials.push(newCredentialMeta);
+          successCount++;
+        } else {
+          errors.push(`Row ${rowNumber}: Failed to encrypt or save credential for '${name}'.`);
+          errorCount++;
+        }
+      }
+      
+      if (successCount > 0) {
+        saveCredentialsMetadata(tempCredentials); // Batch save all successful imports
+      }
+
+    } catch (error: any) {
+      console.error('CSV import error:', error);
+      errors.push(`General error processing CSV: ${error.message || 'Unknown error'}`);
+      errorCount = parsedData.length > 0 ? parsedData.length - successCount : 1; // If parsing failed early
+    } finally {
+      setIsLoadingCredentials(false);
+    }
+    
+    return { successCount, errorCount, errors };
+  };
   
   const value = {
     files,
@@ -395,6 +505,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     updateCredential,
     getDecryptedCredentialContent,
     deleteCredential,
+    importCredentialsFromCSV,
     isLoadingCredentials,
   };
 
@@ -408,3 +519,4 @@ export function useVault() {
   }
   return context;
 }
+

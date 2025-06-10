@@ -3,6 +3,7 @@
 
 import { FingerprintSettings } from '@/components/settings/FingerprintSettings';
 import { RecoveryPhraseSettings } from '@/components/settings/RecoveryPhraseSettings';
+import { ImportCredentials } from '@/components/settings/ImportCredentials'; // New import
 import { Separator } from '@/components/ui/separator';
 
 export default function SettingsPage() {
@@ -16,7 +17,10 @@ export default function SettingsPage() {
       <FingerprintSettings />
       <Separator />
       <RecoveryPhraseSettings />
+      <Separator /> {/* New separator */}
+      <ImportCredentials /> {/* New component */}
       {/* Additional settings sections can be added below */}
     </div>
   );
 }
+
