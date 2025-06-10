@@ -17,7 +17,7 @@ interface ImportResult {
 }
 
 export function ImportCredentials() {
-  const { importCredentialsFromCSV, isLoadingCredentials } = useVault();
+  const { importCredentialsFromCSV, isLoadingCredentials } = useVault(); // Function name remains for now
   const { toast } = useToast();
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -35,29 +35,28 @@ export function ImportCredentials() {
 
   const handleImport = async () => {
     if (!selectedFile) {
-      toast({ title: "No file selected", description: "Please select a CSV file to import.", variant: "destructive" });
+      toast({ title: "No file selected", description: "Please select a CSV or TXT file to import.", variant: "destructive" });
       return;
     }
     setIsImporting(true);
     setImportResult(null);
     
-    const result = await importCredentialsFromCSV(selectedFile);
+    const result = await importCredentialsFromCSV(selectedFile); // Function name remains for now
     setImportResult(result);
 
     if (result.successCount > 0 && result.errorCount === 0) {
-      toast({ title: "Import Successful", description: `${result.successCount} credentials imported.` });
+      toast({ title: "Import Successful", description: `${result.successCount} credentials imported from ${selectedFile.name.endsWith('.txt') ? 'TXT' : 'CSV'}.` });
     } else if (result.successCount > 0 && result.errorCount > 0) {
       toast({ title: "Partial Import", description: `${result.successCount} imported, ${result.errorCount} failed. See details below.`, variant: "default", duration: 7000 });
     } else if (result.errorCount > 0) {
       toast({ title: "Import Failed", description: `Could not import credentials. ${result.errors[0] || 'See details below.'}`, variant: "destructive", duration: 7000 });
     } else {
-       toast({ title: "Import Complete", description: "No credentials found or imported from the file." });
+       toast({ title: "Import Complete", description: `No credentials found or imported from ${selectedFile.name.endsWith('.txt') ? 'TXT' : 'CSV'} file.` });
     }
 
     setIsImporting(false);
     setSelectedFile(null); 
-    // Clear the file input visually - this requires direct DOM manipulation or a key change
-    const fileInput = document.getElementById('csv-import-file') as HTMLInputElement;
+    const fileInput = document.getElementById('credential-import-file') as HTMLInputElement;
     if (fileInput) {
         fileInput.value = "";
     }
@@ -71,9 +70,9 @@ export function ImportCredentials() {
          <div className="flex items-center space-x-3">
             <FileText className="h-8 w-8 text-primary" />
             <div>
-                <CardTitle className="text-xl font-headline text-primary">Import Credentials from CSV</CardTitle>
+                <CardTitle className="text-xl font-headline text-primary">Import Credentials</CardTitle>
                 <CardDescription>
-                Upload a CSV file exported from your browser or another password manager.
+                Upload a CSV or TXT (JSON array) file exported from your browser or another password manager.
                 </CardDescription>
             </div>
         </div>
@@ -83,19 +82,19 @@ export function ImportCredentials() {
             <ShieldAlertIcon className="h-4 w-4" />
             <AlertTitle>Important Security Note!</AlertTitle>
             <AlertDescription>
-                The CSV file contains your passwords in **plain text**. After a successful import,
-                you **must securely delete** the CSV file from your computer to protect your information.
+                The import file (CSV or TXT) contains your passwords in **plain text**. After a successful import,
+                you **must securely delete** the file from your computer to protect your information.
             </AlertDescription>
         </Alert>
 
         <div className="space-y-2">
-            <label htmlFor="csv-import-file" className="text-sm font-medium text-foreground">
-                Select CSV File
+            <label htmlFor="credential-import-file" className="text-sm font-medium text-foreground">
+                Select CSV or TXT File
             </label>
             <Input
-                id="csv-import-file"
+                id="credential-import-file"
                 type="file"
-                accept=".csv"
+                accept=".csv,.txt"
                 onChange={handleFileChange}
                 disabled={totalLoading}
                 className="bg-input border-primary/50 file:text-primary file:font-medium file:mr-2 file:px-3 file:py-1 file:rounded-md file:border-0 file:bg-primary/10 hover:file:bg-primary/20 cursor-pointer"
@@ -103,18 +102,43 @@ export function ImportCredentials() {
             {selectedFile && <p className="text-xs text-muted-foreground">Selected: {selectedFile.name}</p>}
         </div>
 
-        <div className="p-3 bg-muted/50 border border-dashed border-border rounded-md text-xs text-muted-foreground space-y-1">
-            <p className="font-medium text-foreground">Expected CSV Format:</p>
-            <p>The first row should be a header row.</p>
-            <p>Recognized column headers (case-insensitive):</p>
-            <ul className="list-disc list-inside pl-2">
-                <li><code>name</code> (Required): The title or label for the credential.</li>
-                <li><code>password</code> (Required): The password itself.</li>
-                <li><code>url</code> or <code>website</code> (Optional): The website URL.</li>
-                <li><code>username</code> or <code>login</code> (Optional): The username.</li>
-                <li><code>notes</code> or <code>note</code> (Optional): Additional notes.</li>
-            </ul>
-            <p>Order of columns does not matter if headers are present. Empty values are allowed for optional fields.</p>
+        <div className="p-3 bg-muted/50 border border-dashed border-border rounded-md text-xs text-muted-foreground space-y-2">
+            <div>
+                <p className="font-medium text-foreground">Expected CSV Format:</p>
+                <p>The first row should be a header row.</p>
+                <p>Recognized column headers (case-insensitive):</p>
+                <ul className="list-disc list-inside pl-2">
+                    <li><code>name</code> (Required): The title or label for the credential.</li>
+                    <li><code>password</code> (Required): The password itself.</li>
+                    <li><code>url</code> or <code>website</code> (Optional): The website URL.</li>
+                    <li><code>username</code> or <code>login</code> (Optional): The username.</li>
+                    <li><code>notes</code> or <code>note</code> (Optional): Additional notes.</li>
+                </ul>
+                <p>Order of columns does not matter if headers are present.</p>
+            </div>
+            <Separator className="my-2"/>
+            <div>
+                <p className="font-medium text-foreground">Expected TXT Format (JSON Array):</p>
+                <p>The TXT file should contain a single JSON array. Each object in the array represents a credential and should have the following fields:</p>
+                <ul className="list-disc list-inside pl-2">
+                    <li><code>name</code> (string, Required): The title or label.</li>
+                    <li><code>password</code> (string, Required): The password.</li>
+                    <li><code>username</code> (string, Optional): The username.</li>
+                    <li><code>url</code> (string, Optional): The website URL.</li>
+                    <li><code>note</code> (string, Optional): Additional notes.</li>
+                </ul>
+                <p>Example:</p>
+                <pre className="text-xs bg-background p-2 rounded overflow-x-auto">
+{`[
+  {
+    "name": "My Site",
+    "username": "user1",
+    "password": "password123",
+    "url": "https://mysite.com"
+  }
+]`}
+                </pre>
+            </div>
         </div>
 
         {importResult && (

@@ -41,7 +41,7 @@ export interface DecryptedCredential extends CredentialMetadata {
   content: string | PasswordCredentialContentStructure; // Content can be string or structured object
 }
 
-interface CSVImportResult {
+interface CSVImportResult { // Renamed to reflect it can handle more than CSV now
   successCount: number;
   errorCount: number;
   errors: string[];
@@ -59,7 +59,7 @@ interface VaultContextType {
   updateCredential: (credentialId: string, newName: string, newType: string, newContent: string) => Promise<boolean>; // newContent is string
   getDecryptedCredentialContent: (credentialId: string) => Promise<string | PasswordCredentialContentStructure | null>;
   deleteCredential: (credentialId: string) => Promise<boolean>;
-  importCredentialsFromCSV: (csvFile: File) => Promise<CSVImportResult>; // New method
+  importCredentialsFromCSV: (file: File) => Promise<CSVImportResult>; // Kept name as it's used in component
   isLoadingCredentials: boolean; 
 }
 
@@ -68,13 +68,17 @@ const VaultContext = createContext<VaultContextType | undefined>(undefined);
 // Simple CSV parser
 function parseCSV(csvText: string): Array<Record<string, string>> {
     const lines = csvText.split(/\r\n|\n|\r/); // Handle different line endings
-    if (lines.length < 2) return []; // Need at least header and one data line
+    if (lines.length < 1) return []; // Allow empty or header-only CSV
 
+    // Normalize headers: trim and lowercase
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    
     const data = [];
-
+    // Start from 1 if there's more than one line (i.e., data rows exist)
     for (let i = 1; i < lines.length; i++) {
         if (!lines[i].trim()) continue; // Skip empty lines
+        
+        // Basic CSV value splitting, doesn't handle quotes or commas in values robustly
         const values = lines[i].split(',');
         const entry: Record<string, string> = {};
         for (let j = 0; j < headers.length; j++) {
@@ -268,9 +272,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const addCredentialInternal = async (name: string, type: string, content: string, currentCredentials: CredentialMetadata[]): Promise<CredentialMetadata | null> => {
+  const addCredentialInternal = async (name: string, type: string, content: string, currentCredentialsList: CredentialMetadata[]): Promise<CredentialMetadata | null> => {
     if (!derivedKey || !activeUserVaultId) {
-        // This internal function shouldn't toast directly, let the caller handle it.
         console.error("Encryption key or vault ID not available for addCredentialInternal.");
         return null;
     }
@@ -313,7 +316,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         toast({ title: "Error", description: `Failed to add credential "${name}". Key or vault ID missing.`, variant: "destructive" });
         return false;
     } catch (error) {
-        // This catch is mostly for unexpected errors in this wrapper, addCredentialInternal handles its own try/catch.
         console.error('Add credential wrapper error:', error);
         toast({ title: "Error", description: `Failed to add credential "${name}".`, variant: "destructive" });
         return false;
@@ -330,7 +332,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
     setIsLoadingCredentials(true);
     try {
-      const contentBuffer = new TextEncoder().encode(newContent); // newContent is already string (plain or JSON string)
+      const contentBuffer = new TextEncoder().encode(newContent); 
       const { encryptedData, iv } = await encryptData(contentBuffer, derivedKey);
 
       const encryptedContentBase64 = arrayBufferToBase64(encryptedData);
@@ -428,7 +430,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const importCredentialsFromCSV = async (csvFile: File): Promise<CSVImportResult> => {
+  const importCredentialsFromCSV = async (importFile: File): Promise<CSVImportResult> => {
     if (!derivedKey || !activeUserVaultId) {
       return { successCount: 0, errorCount: 1, errors: ["Encryption key or vault ID not available. Please log in again."] };
     }
@@ -440,43 +442,108 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     let tempCredentials = [...credentials]; // Work on a copy for batch update
 
     try {
-      const csvText = await csvFile.text();
-      const parsedData = parseCSV(csvText);
+      const fileText = await importFile.text();
+      
+      if (importFile.name.endsWith('.txt') || importFile.type === 'text/plain') {
+        // --- Handle TXT (JSON Array) Import ---
+        try {
+          const jsonData = JSON.parse(fileText);
+          if (!Array.isArray(jsonData)) {
+            throw new Error("TXT file content is not a JSON array.");
+          }
 
-      if (parsedData.length === 0) {
-        errors.push("CSV file is empty or has no data rows after the header.");
-        errorCount = 1; // Consider this as one file-level error
-      }
+          if (jsonData.length === 0) {
+            errors.push("TXT file contains an empty JSON array or no valid credential objects.");
+          }
 
-      for (let i = 0; i < parsedData.length; i++) {
-        const row = parsedData[i];
-        const rowNumber = i + 2; // +1 for 0-index, +1 for header row
+          for (let i = 0; i < jsonData.length; i++) {
+            const item = jsonData[i];
+            const rowNumber = i + 1; 
 
-        const name = row.name;
-        const password = row.password;
-        
-        if (!name || !password) {
-          errors.push(`Row ${rowNumber}: Missing required 'name' or 'password'. Skipping.`);
-          errorCount++;
-          continue;
+            if (typeof item !== 'object' || item === null) {
+              errors.push(`Item ${rowNumber} in TXT/JSON is not a valid object. Skipping.`);
+              errorCount++;
+              continue;
+            }
+
+            const name = item.name;
+            const password = item.password;
+
+            if (!name || typeof name !== 'string' || !password || typeof password !== 'string') {
+              errors.push(`Item ${rowNumber} in TXT/JSON: Missing required 'name' or 'password' (must be strings). Skipping.`);
+              errorCount++;
+              continue;
+            }
+
+            const username = typeof item.username === 'string' ? item.username : '';
+            const url = typeof item.url === 'string' ? item.url : '';
+            const note = typeof item.note === 'string' ? item.note : '';
+
+            const credentialContent: PasswordCredentialContentStructure = { username, password, url, note };
+            const contentString = JSON.stringify(credentialContent);
+            
+            const newCredentialMeta = await addCredentialInternal(name, "Password", contentString, tempCredentials);
+            
+            if (newCredentialMeta) {
+              tempCredentials.push(newCredentialMeta);
+              successCount++;
+            } else {
+              errors.push(`Item ${rowNumber} in TXT/JSON: Failed to encrypt or save credential for '${name}'.`);
+              errorCount++;
+            }
+          }
+        } catch (jsonError: any) {
+            errors.push(`Error parsing TXT file as JSON: ${jsonError.message || 'Invalid JSON format'}`);
+            errorCount = jsonData ? (jsonData.length - successCount || 1) : 1; // If parsing failed, count all as errors or at least one.
         }
 
-        const url = row.url || row.website || '';
-        const username = row.username || row.login || '';
-        const note = row.notes || row.note || '';
+      } else if (importFile.name.endsWith('.csv')) {
+        // --- Handle CSV Import ---
+        const parsedData = parseCSV(fileText);
 
-        const credentialContent: PasswordCredentialContentStructure = { username, password, url, note };
-        const contentString = JSON.stringify(credentialContent);
-        
-        const newCredentialMeta = await addCredentialInternal(name, "Password", contentString, tempCredentials);
-        
-        if (newCredentialMeta) {
-          tempCredentials.push(newCredentialMeta);
-          successCount++;
-        } else {
-          errors.push(`Row ${rowNumber}: Failed to encrypt or save credential for '${name}'.`);
-          errorCount++;
+        if (parsedData.length === 0) {
+            if (!fileText.trim() || fileText.split(/\r\n|\n|\r/)[0].trim() === '') {
+                errors.push("CSV file is empty or does not contain a header row.");
+            } else {
+                errors.push("CSV file has a header but no data rows.");
+            }
+           // errorCount = 1; // Consider this as one file-level error
         }
+
+
+        for (let i = 0; i < parsedData.length; i++) {
+          const row = parsedData[i];
+          const rowNumber = i + 2; // +1 for 0-index, +1 for header row
+
+          const name = row.name;
+          const password = row.password;
+          
+          if (!name || !password) {
+            errors.push(`Row ${rowNumber} in CSV: Missing required 'name' or 'password'. Skipping.`);
+            errorCount++;
+            continue;
+          }
+
+          const url = row.url || row.website || '';
+          const username = row.username || row.login || '';
+          const note = row.notes || row.note || '';
+
+          const credentialContent: PasswordCredentialContentStructure = { username, password, url, note };
+          const contentString = JSON.stringify(credentialContent);
+          
+          const newCredentialMeta = await addCredentialInternal(name, "Password", contentString, tempCredentials);
+          
+          if (newCredentialMeta) {
+            tempCredentials.push(newCredentialMeta);
+            successCount++;
+          } else {
+            errors.push(`Row ${rowNumber} in CSV: Failed to encrypt or save credential for '${name}'.`);
+            errorCount++;
+          }
+        }
+      } else {
+        errors.push(`Unsupported file type: ${importFile.name}. Please upload a .csv or .txt file.`);
+        errorCount = 1;
       }
       
       if (successCount > 0) {
@@ -484,9 +551,10 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       }
 
     } catch (error: any) {
-      console.error('CSV import error:', error);
-      errors.push(`General error processing CSV: ${error.message || 'Unknown error'}`);
-      errorCount = parsedData.length > 0 ? parsedData.length - successCount : 1; // If parsing failed early
+      console.error('File import error:', error);
+      errors.push(`General error processing file: ${error.message || 'Unknown error'}`);
+      errorCount = (importFile ? 1 : 0) + (tempCredentials.length - credentials.length - successCount); // Estimate errors
+      if (errorCount <= 0 && errors.length > 0) errorCount = errors.length;
     } finally {
       setIsLoadingCredentials(false);
     }
