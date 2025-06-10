@@ -8,9 +8,21 @@ import {
   ACTIVE_USERNAME_KEY,
   getPasswordHashKey, 
   getSaltKey, 
-  getVaultIdKey
+  getVaultIdKey,
+  getFilesMetadataKey,
+  getFileKeyPrefix,
+  getCredentialsMetadataKey,
+  getCredentialContentPrefix,
+  getWebAuthnCredentialIdKey,
+  getWebAuthnUserHandleKey
 } from '@/lib/constants';
 import * as bip39 from 'bip39';
+
+export interface UserDetailsForAdmin {
+  username: string;
+  hasPasswordSet: boolean;
+  vaultId: string | null;
+}
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -24,6 +36,9 @@ interface AuthContextType {
   isAccountAvailable: (username: string) => Promise<boolean>;
   getAllUsernames: () => Promise<string[]>;
   isLoading: boolean;
+  // Admin panel specific functions
+  getAllUserDetailsForAdmin: () => Promise<UserDetailsForAdmin[]>;
+  deleteUserDataForAdmin: (username: string) => Promise<{success: boolean, message?: string}>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -93,15 +108,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (storedActiveUser) {
         setActiveUsername(storedActiveUser);
         const vaultId = localStorage.getItem(getVaultIdKey(storedActiveUser));
-        if (vaultId) { // Ensure vaultId exists before setting
+        if (vaultId) { 
           setActiveUserVaultId(vaultId);
         } else {
-            // This case could happen if vaultId was somehow not set during signup for an existing user.
-            // Or if localStorage was manually tampered with.
             console.warn(`Vault ID not found for active user: ${storedActiveUser}. User may need to re-authenticate or setup fully.`);
-            // Consider clearing active user if vaultId is crucial and missing.
-            // localStorage.removeItem(ACTIVE_USERNAME_KEY);
-            // setActiveUsername(null); 
         }
       }
     } catch (error) {
@@ -239,12 +249,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       const userVaultId = localStorage.getItem(getVaultIdKey(username));
       if (!userVaultId) {
-          // This should ideally not happen if an account exists, but good to check
           console.error("Vault ID not found during password reset, cannot proceed.");
           setIsLoading(false);
           return false;
       }
-      setActiveUserVaultId(userVaultId); // Ensure vaultId is set
+      setActiveUserVaultId(userVaultId); 
 
       const key = await deriveKeyInternal(newPassword, salt);
       setDerivedKey(key);
@@ -267,6 +276,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push('/login');
   }, [router]);
 
+  // Admin panel functions
+  const getAllUserDetailsForAdmin = useCallback(async (): Promise<UserDetailsForAdmin[]> => {
+    const users: UserDetailsForAdmin[] = [];
+    const usernames = await getAllUsernames(); // Use existing function to get all usernames
+    for (const username of usernames) {
+      const hasPasswordSet = !!localStorage.getItem(getPasswordHashKey(username));
+      const vaultId = localStorage.getItem(getVaultIdKey(username));
+      users.push({ username, hasPasswordSet, vaultId });
+    }
+    return users;
+  }, [getAllUsernames]);
+
+  const deleteUserDataForAdmin = useCallback(async (usernameToDelete: string): Promise<{success: boolean, message?: string}> => {
+    setIsLoading(true);
+    try {
+      const vaultId = localStorage.getItem(getVaultIdKey(usernameToDelete));
+
+      // Remove user-specific keys
+      localStorage.removeItem(getPasswordHashKey(usernameToDelete));
+      localStorage.removeItem(getSaltKey(usernameToDelete));
+      localStorage.removeItem(getVaultIdKey(usernameToDelete));
+
+      if (vaultId) {
+        // Remove vault-specific keys
+        localStorage.removeItem(getFilesMetadataKey(vaultId));
+        localStorage.removeItem(getCredentialsMetadataKey(vaultId));
+        localStorage.removeItem(getWebAuthnCredentialIdKey(vaultId));
+        localStorage.removeItem(getWebAuthnUserHandleKey(vaultId));
+
+        // Remove all individual files and credentials for this vault
+        const filePrefix = getFileKeyPrefix(vaultId);
+        const credPrefix = getCredentialContentPrefix(vaultId);
+        
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith(filePrefix) || key.startsWith(credPrefix))) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+      }
+
+      // If the deleted user is the currently active user, log them out
+      if (activeUsername === usernameToDelete) {
+        logout();
+      }
+      
+      setIsLoading(false);
+      return { success: true, message: `All data for user "${usernameToDelete}" has been deleted.` };
+    } catch (error) {
+      console.error(`Error deleting data for user ${usernameToDelete}:`, error);
+      setIsLoading(false);
+      return { success: false, message: `Failed to delete data for user "${usernameToDelete}".` };
+    }
+  }, [activeUsername, logout]);
+
   const value = {
     isAuthenticated: !!derivedKey && !!activeUsername,
     activeUsername,
@@ -279,6 +345,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAccountAvailable,
     getAllUsernames,
     isLoading,
+    getAllUserDetailsForAdmin,
+    deleteUserDataForAdmin,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -291,3 +359,5 @@ export function useAuth() {
   }
   return context;
 }
+
+    
