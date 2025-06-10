@@ -18,8 +18,12 @@ export function AppLogo({ className, imageRenderHeightPx = 32, textSize = "text-
   return (
     <div className={`flex items-center space-x-2 ${className}`}>
       {/* This div wrapper ensures the space is allocated correctly.
-          The width and height here should match what next/image will render. */}
-      <div style={{ width: `${actualRenderWidth}px`, height: `${actualRenderHeight}px` }} className="relative">
+          The width and height here should match what next/image will render.
+          Added flex items-center justify-center to center the image within this box. */}
+      <div 
+        style={{ width: `${actualRenderWidth}px`, height: `${actualRenderHeight}px` }} 
+        className="relative flex items-center justify-center"
+      >
         <Image
           src={fnhImageFile} // Use the imported image
           alt="FNH Logo"
