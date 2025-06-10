@@ -1,12 +1,14 @@
+
 'use client';
 
-import { FileText, Home } from 'lucide-react'; // Using FileText as a generic "All Files" icon.
+import { FileText, Settings } from 'lucide-react'; 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { name: 'All Files', href: '/vault', icon: FileText },
+  { name: 'Settings', href: '/vault/settings', icon: Settings },
   // Add more items here if needed, e.g., { name: 'Recents', href: '/vault/recents', icon: Clock }
 ];
 
