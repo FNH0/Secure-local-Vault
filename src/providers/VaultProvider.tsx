@@ -36,16 +36,16 @@ export interface DecryptedCredential extends CredentialMetadata {
 
 interface VaultContextType {
   files: FileMetadata[];
-  uploadFile: (file: File) => Promise<void>;
+  uploadFile: (file: File) => Promise<boolean>; // Return boolean for success
   downloadFile: (fileId: string) => Promise<{ name: string; blob: Blob } | null>;
-  deleteFile: (fileId: string) => Promise<void>;
+  deleteFile: (fileId: string) => Promise<boolean>; // Return boolean for success
   isLoading: boolean; 
 
   credentials: CredentialMetadata[];
-  addCredential: (name: string, type: string, content: string) => Promise<void>;
-  updateCredential: (credentialId: string, newName: string, newType: string, newContent: string) => Promise<void>;
+  addCredential: (name: string, type: string, content: string) => Promise<boolean>; // Return boolean for success
+  updateCredential: (credentialId: string, newName: string, newType: string, newContent: string) => Promise<boolean>; // Return boolean for success
   getDecryptedCredentialContent: (credentialId: string) => Promise<string | null>;
-  deleteCredential: (credentialId: string) => Promise<void>;
+  deleteCredential: (credentialId: string) => Promise<boolean>; // Return boolean for success
   isLoadingCredentials: boolean; 
 }
 
@@ -115,31 +115,35 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, activeUserVaultId, loadFilesMetadata, loadCredentialsMetadata]);
 
   const saveFilesMetadata = (updatedFiles: FileMetadata[]) => {
-    if (!activeUserVaultId) return;
+    if (!activeUserVaultId) return false;
     try {
       localStorage.setItem(getFilesMetadataKey(activeUserVaultId), JSON.stringify(updatedFiles));
       setFiles(updatedFiles);
+      return true;
     } catch (error) {
       console.error("Error saving files metadata:", error);
       toast({ title: "Error", description: "Could not save file list changes.", variant: "destructive"});
+      return false;
     }
   };
 
   const saveCredentialsMetadata = (updatedCredentials: CredentialMetadata[]) => {
-    if (!activeUserVaultId) return;
+    if (!activeUserVaultId) return false;
     try {
       localStorage.setItem(getCredentialsMetadataKey(activeUserVaultId), JSON.stringify(updatedCredentials));
       setCredentials(updatedCredentials);
+      return true;
     } catch (error) {
       console.error("Error saving credentials metadata:", error);
       toast({ title: "Error", description: "Could not save credentials list changes.", variant: "destructive"});
+      return false;
     }
   };
 
-  const uploadFile = async (file: File) => {
+  const uploadFile = async (file: File): Promise<boolean> => {
     if (!derivedKey || !activeUserVaultId) {
       toast({ title: "Error", description: "Encryption key or vault ID not available. Please log in again.", variant: "destructive"});
-      return;
+      return false;
     }
     setIsLoading(true);
     try {
@@ -160,11 +164,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         ivBase64: ivBase64,
         createdAt: new Date().toISOString(),
       };
-      saveFilesMetadata([...files, newFileMetadata]);
-      toast({ title: "Success", description: `File "${file.name}" uploaded successfully.` });
+      const success = saveFilesMetadata([...files, newFileMetadata]);
+      if (success) {
+        toast({ title: "Success", description: `File "${file.name}" uploaded successfully.` });
+      }
+      return success;
     } catch (error) {
       console.error('File upload error:', error);
       toast({ title: "Error", description: `Failed to upload file "${file.name}".`, variant: "destructive"});
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -205,27 +213,31 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const deleteFile = async (fileId: string) => {
-    if (!activeUserVaultId) return;
+  const deleteFile = async (fileId: string): Promise<boolean> => {
+    if (!activeUserVaultId) return false;
     setIsLoading(true);
     try {
       localStorage.removeItem(`${getFileKeyPrefix(activeUserVaultId)}${fileId}`);
       const updatedFiles = files.filter(f => f.id !== fileId);
-      saveFilesMetadata(updatedFiles);
-      const fileName = files.find(f => f.id === fileId)?.name || "File";
-      toast({ title: "Success", description: `"${fileName}" deleted successfully.` });
+      const success = saveFilesMetadata(updatedFiles);
+      if (success) {
+        const fileName = files.find(f => f.id === fileId)?.name || "File";
+        toast({ title: "Success", description: `"${fileName}" deleted successfully.` });
+      }
+      return success;
     } catch (error) {
       console.error('File deletion error:', error);
       toast({ title: "Error", description: "Failed to delete file.", variant: "destructive"});
+      return false;
     } finally {
       setIsLoading(false);
     }
   };
 
-  const addCredential = async (name: string, type: string, content: string) => {
+  const addCredential = async (name: string, type: string, content: string): Promise<boolean> => {
     if (!derivedKey || !activeUserVaultId) {
       toast({ title: "Error", description: "Encryption key or vault ID not available.", variant: "destructive" });
-      return;
+      return false;
     }
     setIsLoadingCredentials(true);
     try {
@@ -245,20 +257,24 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString(),
         ivBase64,
       };
-      saveCredentialsMetadata([...credentials, newCredentialMetadata]);
-      toast({ title: "Success", description: `Credential "${name}" added successfully.` });
+      const success = saveCredentialsMetadata([...credentials, newCredentialMetadata]);
+      if (success) {
+        toast({ title: "Success", description: `Credential "${name}" added successfully.` });
+      }
+      return success;
     } catch (error) {
       console.error('Add credential error:', error);
       toast({ title: "Error", description: `Failed to add credential "${name}".`, variant: "destructive" });
+      return false;
     } finally {
       setIsLoadingCredentials(false);
     }
   };
 
-  const updateCredential = async (credentialId: string, newName: string, newType: string, newContent: string) => {
+  const updateCredential = async (credentialId: string, newName: string, newType: string, newContent: string): Promise<boolean> => {
     if (!derivedKey || !activeUserVaultId) {
       toast({ title: "Error", description: "Encryption key or vault ID not available.", variant: "destructive" });
-      return;
+      return false;
     }
     setIsLoadingCredentials(true);
     try {
@@ -282,11 +298,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         }
         return cred;
       });
-      saveCredentialsMetadata(updatedCredentials);
-      toast({ title: "Success", description: `Credential "${newName}" updated successfully.` });
+      const success = saveCredentialsMetadata(updatedCredentials);
+      if (success) {
+        toast({ title: "Success", description: `Credential "${newName}" updated successfully.` });
+      }
+      return success;
     } catch (error) {
       console.error('Update credential error:', error);
       toast({ title: "Error", description: `Failed to update credential "${newName}".`, variant: "destructive" });
+      return false;
     } finally {
       setIsLoadingCredentials(false);
     }
@@ -326,18 +346,22 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
   };
   
-  const deleteCredential = async (credentialId: string) => {
-    if (!activeUserVaultId) return;
+  const deleteCredential = async (credentialId: string): Promise<boolean> => {
+    if (!activeUserVaultId) return false;
     setIsLoadingCredentials(true);
     try {
       localStorage.removeItem(`${getCredentialContentPrefix(activeUserVaultId)}${credentialId}`);
       const updatedCredentials = credentials.filter(c => c.id !== credentialId);
-      saveCredentialsMetadata(updatedCredentials);
-      const credentialName = credentials.find(c => c.id === credentialId)?.name || "Credential";
-      toast({ title: "Success", description: `"${credentialName}" deleted successfully.` });
+      const success = saveCredentialsMetadata(updatedCredentials);
+      if (success) {
+        const credentialName = credentials.find(c => c.id === credentialId)?.name || "Credential";
+        toast({ title: "Success", description: `"${credentialName}" deleted successfully.` });
+      }
+      return success;
     } catch (error) {
       console.error('Credential deletion error:', error);
       toast({ title: "Error", description: "Failed to delete credential.", variant: "destructive" });
+      return false;
     } finally {
       setIsLoadingCredentials(false);
     }
