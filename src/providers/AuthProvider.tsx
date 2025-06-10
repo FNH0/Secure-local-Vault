@@ -4,12 +4,13 @@
 import type React from 'react';
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { LOCAL_STORAGE_PASSWORD_HASH_KEY, LOCAL_STORAGE_SALT_KEY } from '@/lib/constants';
+import { LOCAL_STORAGE_PASSWORD_HASH_KEY, LOCAL_STORAGE_SALT_KEY, LOCAL_STORAGE_VAULT_ID } from '@/lib/constants';
 import * as bip39 from 'bip39';
 
 interface AuthContextType {
   isAuthenticated: boolean;
   derivedKey: CryptoKey | null;
+  vaultId: string | null; // Added vaultId
   login: (password: string) => Promise<boolean>;
   logout: () => void;
   setPassword: (password: string) => Promise<boolean>;
@@ -66,7 +67,7 @@ async function hashPasswordInternal(password: string, salt: Uint8Array): Promise
       hash: 'SHA-256',
     },
     keyMaterial,
-    256 
+    256
   );
   return btoa(String.fromCharCode(...new Uint8Array(derivedBits))); // Base64 encode
 }
@@ -76,15 +77,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [derivedKey, setDerivedKey] = useState<CryptoKey | null>(null);
   const [isPasswordSet, setIsPasswordSet] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [vaultId, setVaultId] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
+    setIsLoading(true);
     try {
       const storedHash = localStorage.getItem(LOCAL_STORAGE_PASSWORD_HASH_KEY);
       setIsPasswordSet(!!storedHash);
+
+      let currentVaultId = localStorage.getItem(LOCAL_STORAGE_VAULT_ID);
+      if (storedHash && !currentVaultId) {
+        // Backward compatibility: if password is set but no vaultId, generate one
+        currentVaultId = crypto.randomUUID();
+        localStorage.setItem(LOCAL_STORAGE_VAULT_ID, currentVaultId);
+      }
+      setVaultId(currentVaultId);
+
     } catch (error) {
-      console.error("Error accessing localStorage:", error);
-      setIsPasswordSet(false); // Assume password not set if localStorage is inaccessible
+      console.error("Error accessing localStorage during initial load:", error);
+      setIsPasswordSet(false);
+      setVaultId(null);
     }
     setIsLoading(false);
   }, []);
@@ -94,17 +107,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const storedHash = localStorage.getItem(LOCAL_STORAGE_PASSWORD_HASH_KEY);
       const saltHex = localStorage.getItem(LOCAL_STORAGE_SALT_KEY);
+      const currentVaultId = localStorage.getItem(LOCAL_STORAGE_VAULT_ID);
 
-      if (!storedHash || !saltHex) {
-        console.error('Password or salt not set.');
+
+      if (!storedHash || !saltHex || !currentVaultId) {
+        console.error('Password, salt, or vault ID not set.');
         setIsLoading(false);
         return false;
       }
+      setVaultId(currentVaultId); // Ensure vaultId is set in state
       
       const salt = Uint8Array.from(atob(saltHex), c => c.charCodeAt(0));
-      const currentHash = await hashPasswordInternal(password, salt);
+      const currentPasswordHash = await hashPasswordInternal(password, salt);
 
-      if (currentHash === storedHash) {
+      if (currentPasswordHash === storedHash) {
         const key = await deriveKeyInternal(password, salt);
         setDerivedKey(key);
         setIsLoading(false);
@@ -124,8 +140,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const salt = crypto.getRandomValues(new Uint8Array(16));
       const newHash = await hashPasswordInternal(password, salt);
       
+      const newVaultId = crypto.randomUUID();
+      localStorage.setItem(LOCAL_STORAGE_VAULT_ID, newVaultId);
+      setVaultId(newVaultId);
+
       localStorage.setItem(LOCAL_STORAGE_PASSWORD_HASH_KEY, newHash);
-      localStorage.setItem(LOCAL_STORAGE_SALT_KEY, btoa(String.fromCharCode(...salt))); // Store salt as base64
+      localStorage.setItem(LOCAL_STORAGE_SALT_KEY, btoa(String.fromCharCode(...salt)));
       
       const key = await deriveKeyInternal(password, salt);
       setDerivedKey(key);
@@ -148,7 +168,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      // If phrase is valid, proceed to set the new password
+      // A vaultId should already exist. If not, this is an unusual state, but we'll ensure one is set.
+      let currentVaultId = localStorage.getItem(LOCAL_STORAGE_VAULT_ID);
+      if (!currentVaultId) {
+        currentVaultId = crypto.randomUUID();
+        localStorage.setItem(LOCAL_STORAGE_VAULT_ID, currentVaultId);
+      }
+      setVaultId(currentVaultId);
+
+
       const salt = crypto.getRandomValues(new Uint8Array(16));
       const newHash = await hashPasswordInternal(newPassword, salt);
       
@@ -157,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       const key = await deriveKeyInternal(newPassword, salt);
       setDerivedKey(key);
-      setIsPasswordSet(true); // Ensure this is true
+      setIsPasswordSet(true);
       setIsLoading(false);
       return true;
     } catch (error) {
@@ -169,12 +197,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     setDerivedKey(null);
+    // vaultId remains in localStorage, but is not "active" in AuthContext after logout until next login.
+    // We don't clear vaultId from state here to avoid potential race conditions if logout is called during an operation
+    // that depends on vaultId. It will be re-read on next successful login.
     router.push('/login');
   }, [router]);
 
   const value = {
     isAuthenticated: !!derivedKey,
     derivedKey,
+    vaultId,
     login,
     logout,
     setPassword,
