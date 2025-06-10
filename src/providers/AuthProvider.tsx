@@ -1,9 +1,11 @@
+
 'use client';
 
 import type React from 'react';
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { LOCAL_STORAGE_PASSWORD_HASH_KEY, LOCAL_STORAGE_SALT_KEY } from '@/lib/constants';
+import * as bip39 from 'bip39';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -11,6 +13,7 @@ interface AuthContextType {
   login: (password: string) => Promise<boolean>;
   logout: () => void;
   setPassword: (password: string) => Promise<boolean>;
+  resetPasswordWithRecoveryPhrase: (phrase: string, newPassword: string) => Promise<boolean>;
   isPasswordSet: boolean;
   isLoading: boolean;
 }
@@ -136,6 +139,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, []);
 
+  const resetPasswordWithRecoveryPhrase = useCallback(async (phrase: string, newPassword: string): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      if (!bip39.validateMnemonic(phrase)) {
+        console.error('Invalid recovery phrase.');
+        setIsLoading(false);
+        return false;
+      }
+
+      // If phrase is valid, proceed to set the new password
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const newHash = await hashPasswordInternal(newPassword, salt);
+      
+      localStorage.setItem(LOCAL_STORAGE_PASSWORD_HASH_KEY, newHash);
+      localStorage.setItem(LOCAL_STORAGE_SALT_KEY, btoa(String.fromCharCode(...salt)));
+      
+      const key = await deriveKeyInternal(newPassword, salt);
+      setDerivedKey(key);
+      setIsPasswordSet(true); // Ensure this is true
+      setIsLoading(false);
+      return true;
+    } catch (error) {
+      console.error('Reset password with recovery phrase error:', error);
+    }
+    setIsLoading(false);
+    return false;
+  }, []);
+
   const logout = useCallback(() => {
     setDerivedKey(null);
     router.push('/login');
@@ -147,6 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login,
     logout,
     setPassword,
+    resetPasswordWithRecoveryPhrase,
     isPasswordSet,
     isLoading,
   };

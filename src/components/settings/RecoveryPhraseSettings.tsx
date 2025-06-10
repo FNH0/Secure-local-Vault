@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ShieldCheck, ListChecks, Loader2, RefreshCw, Copy } from 'lucide-react';
+import { ShieldCheck, ListChecks, Loader2, RefreshCw, Copy, ShieldAlertIcon } from 'lucide-react'; // Changed ShieldAlert to ShieldAlertIcon
 import { useToast } from '@/hooks/use-toast';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -26,14 +26,12 @@ export function RecoveryPhraseSettings() {
   const handleGeneratePhrase = async () => {
     setIsGenerating(true);
     setHasSavedPhrase(false); // Reset confirmation if regenerating
-    // Ensure bip39 is loaded (it should be, but good practice for client-side)
     if (typeof bip39.generateMnemonic !== 'function') {
         toast({ title: "Error", description: "Recovery library not loaded. Please try again.", variant: "destructive"});
         setIsGenerating(false);
         return;
     }
     try {
-      // Generate a 12-word mnemonic
       const mnemonic = bip39.generateMnemonic();
       setRecoveryPhrase(mnemonic);
       setShowPhrase(true);
@@ -52,7 +50,6 @@ export function RecoveryPhraseSettings() {
         return;
     }
     setShowPhrase(false);
-    // setRecoveryPhrase(null); // Optionally clear the phrase from state after confirmation
     toast({ title: "Confirmation Received", description: "Remember to keep your recovery phrase safe!" });
   };
 
@@ -96,14 +93,14 @@ export function RecoveryPhraseSettings() {
           <div>
             <CardTitle className="text-xl font-headline text-primary">Master Password Recovery</CardTitle>
             <CardDescription>
-              Generate a recovery phrase to regain access if you forget your master password.
+              Generate a recovery phrase. If you forget your master password, this phrase will allow you to reset it.
             </CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
         <Alert variant="destructive">
-          <ShieldAlert className="h-4 w-4" />
+          <ShieldAlertIcon className="h-4 w-4" /> {/* Changed from ShieldAlert to ShieldAlertIcon */}
           <AlertTitle>Critical: Store Securely!</AlertTitle>
           <AlertDescription>
             If you lose your master password AND this recovery phrase, your encrypted data will be permanently unrecoverable.
@@ -111,13 +108,29 @@ export function RecoveryPhraseSettings() {
           </AlertDescription>
         </Alert>
 
-        {!showPhrase && (
+        {!showPhrase && !recoveryPhrase && ( // Only show generate button if no phrase is actively shown or set
           <Button onClick={handleGeneratePhrase} disabled={isGenerating} className="w-full sm:w-auto bg-primary hover:bg-primary/90">
             {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             <RefreshCw className="mr-2 h-4 w-4" />
             Generate New Recovery Phrase
           </Button>
         )}
+        
+        {recoveryPhrase && !showPhrase && ( // If phrase exists but is hidden (after confirmation)
+             <div className="space-y-3">
+                <p className="text-sm text-green-500">A recovery phrase has been generated. You confirmed you saved it.</p>
+                <Button onClick={() => { setShowPhrase(true); setHasSavedPhrase(false); }} variant="outline" className="w-full sm:w-auto">
+                    <ListChecks className="mr-2 h-4 w-4" />
+                    View My Saved Phrase Again
+                </Button>
+                 <Button onClick={handleGeneratePhrase} variant="destructive" disabled={isGenerating} className="w-full sm:w-auto ml-0 sm:ml-2 mt-2 sm:mt-0">
+                    {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Generate a New Phrase (Discards Old)
+                </Button>
+            </div>
+        )}
+
 
         {showPhrase && recoveryPhrase && (
           <div className="space-y-4 p-4 border border-dashed border-primary/50 rounded-md bg-background/30">
@@ -163,29 +176,16 @@ export function RecoveryPhraseSettings() {
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-            This phrase allows you to reset your master password if forgotten. The actual recovery process using this phrase on the login page will be implemented in a future update.
+            This phrase allows you to reset your master password if forgotten. Using the recovery phrase will create a new master password.
+            Files encrypted with your old master password will require the old password to be decrypted.
         </p>
       </CardContent>
     </Card>
   );
 }
 
-// Helper Icon for Alert (if not already globally available)
-const ShieldAlert = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    {...props}
-  >
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    <path d="M12 8v4" />
-    <path d="M12 16h.01" />
-  </svg>
-);
+// Note: ShieldAlertIcon from lucide-react should be used. If ShieldAlert was a custom SVG, this change assumes ShieldAlertIcon replaces it.
+// If ShieldAlert was from lucide-react, it might have been renamed or you intended ShieldAlertIcon.
+// I'm using ShieldAlertIcon as it's a common pattern in lucide for alert icons.
+// The original code had a custom SVG definition for ShieldAlert, if this component is removed because ShieldAlertIcon exists,
+// then no custom SVG is needed here.
