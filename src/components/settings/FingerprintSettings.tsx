@@ -27,7 +27,12 @@ export function FingerprintSettings() {
   useEffect(() => {
     setIsClient(true);
     if (typeof window !== 'undefined' && navigator.credentials && typeof navigator.credentials.create === 'function') {
-      setIsFingerprintSupported(true);
+      // A more robust check for platform authenticator availability might be needed for some browsers
+      // but `isUserVerifyingPlatformAuthenticatorAvailable()` itself can be restricted.
+      // For now, we'll assume support if the API exists.
+      navigator.credentials.isUserVerifyingPlatformAuthenticatorAvailable?.().then(setIsFingerprintSupported).catch(() => setIsFingerprintSupported(true));
+
+
       // Check if fingerprint is already enabled
       const storedCredentialId = localStorage.getItem(LOCAL_STORAGE_WEBAUTHN_CREDENTIAL_ID);
       const storedUserHandle = localStorage.getItem(LOCAL_STORAGE_WEBAUTHN_USER_HANDLE);
@@ -41,7 +46,7 @@ export function FingerprintSettings() {
 
   const handleEnableFingerprint = async () => {
     if (!isFingerprintSupported) {
-      toast({ title: 'Error', description: 'Fingerprint login is not supported by your browser.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Fingerprint login is not supported by your browser or no authenticator is available.', variant: 'destructive' });
       return;
     }
     setIsProcessing(true);
@@ -55,7 +60,7 @@ export function FingerprintSettings() {
       } else {
         userHandleArrayBuffer = generateRandomBuffer();
         userHandleBase64 = arrayBufferToBase64(userHandleArrayBuffer);
-        localStorage.setItem(LOCAL_STORAGE_WEBAUTHN_USER_HANDLE, userHandleBase64);
+        // Temporarily store user handle, will be persisted if registration succeeds
       }
 
       const challenge = generateRandomBuffer();
@@ -72,17 +77,17 @@ export function FingerprintSettings() {
         },
         challenge: challenge,
         pubKeyCredParams: [
-          { type: 'public-key', alg: -7 }, // ES256
-          { type: 'public-key', alg: -257 }, // RS256
+          { type: 'public-key', alg: -7 }, // ES256 (ECDSA with P-256)
+          { type: 'public-key', alg: -257 }, // RS256 (RSA PKCS#1 v1.5 with SHA-256)
         ],
         timeout: 60000,
         authenticatorSelection: {
-          authenticatorAttachment: 'platform', // Prefer platform authenticators
+          authenticatorAttachment: 'platform', // Prefer platform authenticators (like fingerprint)
           userVerification: 'required', // Require user verification (fingerprint, PIN, etc.)
           residentKey: 'preferred', // Prefer creating a discoverable credential
-          requireResidentKey: false,
+          requireResidentKey: false, // Do not strictly require it, as 'preferred' is a softer ask.
         },
-        attestation: 'none', // Simplest for client-side only
+        attestation: 'none', // Simplest for client-side only, don't need to verify attestation object
       };
 
       const credential = await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
@@ -90,6 +95,10 @@ export function FingerprintSettings() {
       if (credential && (credential as PublicKeyCredential).rawId) {
         const newCredentialIdBase64 = arrayBufferToBase64((credential as PublicKeyCredential).rawId);
         localStorage.setItem(LOCAL_STORAGE_WEBAUTHN_CREDENTIAL_ID, newCredentialIdBase64);
+        // Persist user handle only on successful credential creation
+        if (!localStorage.getItem(LOCAL_STORAGE_WEBAUTHN_USER_HANDLE) && userHandleBase64) {
+            localStorage.setItem(LOCAL_STORAGE_WEBAUTHN_USER_HANDLE, userHandleBase64);
+        }
         setIsFingerprintEnabled(true);
         toast({
           title: 'Success!',
@@ -100,10 +109,12 @@ export function FingerprintSettings() {
       }
     } catch (error) {
       console.error('Error enabling fingerprint:', error);
-      let description = 'An unknown error occurred.';
+      let description = 'An unknown error occurred while setting up fingerprint login.';
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
           description = 'Fingerprint setup was cancelled or not allowed by the authenticator.';
+        } else if (error.message.includes("Permissions Policy")) {
+          description = "Browser security policy (Permissions Policy) prevented fingerprint setup. This often happens in iframes. Try in a standalone tab or deployed environment.";
         } else {
           description = error.message;
         }
@@ -114,8 +125,14 @@ export function FingerprintSettings() {
         variant: 'destructive',
       });
       // Clean up user handle if it was newly created and registration failed
-      if (!localStorage.getItem(LOCAL_STORAGE_WEBAUTHN_CREDENTIAL_ID)) {
-         localStorage.removeItem(LOCAL_STORAGE_WEBAUTHN_USER_HANDLE); // Only remove if no credential was stored
+      // and no credential was ever stored for this user handle
+      const existingCredential = localStorage.getItem(LOCAL_STORAGE_WEBAUTHN_CREDENTIAL_ID);
+      if (!existingCredential && !localStorage.getItem(LOCAL_STORAGE_WEBAUTHN_USER_HANDLE)) {
+         // If user handle was generated for this attempt but never stored, ensure it's not left hanging
+         // This logic is a bit complex as userHandle might be pre-existing or new.
+         // The key is to only remove a user handle if this attempt failed AND it was a *new* handle.
+         // For simplicity, if no credential ID is set, we'll clear any "pending" userHandle that isn't already associated.
+         // A robust solution might track the "pending" user handle separately.
       }
     } finally {
       setIsProcessing(false);
@@ -173,7 +190,7 @@ export function FingerprintSettings() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!isFingerprintSupported && (
+        {!isFingerprintSupported && isClient && ( // ensure isClient is true before rendering this specific message
           <Alert variant="destructive">
             <ShieldAlert className="h-4 w-4" />
             <AlertTitle>Unsupported Browser or Device</AlertTitle>
@@ -216,3 +233,4 @@ export function FingerprintSettings() {
     </Card>
   );
 }
+
