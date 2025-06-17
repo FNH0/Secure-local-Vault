@@ -7,6 +7,10 @@ import { AuthProvider } from '@/providers/AuthProvider'; // AuthProvider is need
 export const metadata: Metadata = {
   title: 'FNH Secure Vault - Admin Panel',
   description: 'Admin panel for FNH Secure Vault',
+  // Adding icons metadata for Next.js to handle favicon
+  icons: {
+    icon: '/favicon.png', // Path to your favicon in the public directory
+  },
 };
 
 export default function AdminLayout({
@@ -20,6 +24,8 @@ export default function AdminLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+        {/* Explicitly linking favicon.png for broader compatibility */}
+        <link rel="icon" href="/favicon.png" type="image/png" sizes="any" />
       </head>
       <body className="font-body antialiased bg-background text-foreground">
         <AuthProvider> {/* AuthProvider wraps admin content to provide context for admin actions */}
