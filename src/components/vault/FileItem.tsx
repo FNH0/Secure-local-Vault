@@ -19,7 +19,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useState, useEffect } from 'react';
-import { FilePreviewModal } from './FilePreviewModal'; // Will be created
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface FileItemProps {
   file: FileMetadata;
@@ -40,8 +40,22 @@ function isPreviewSupported(fileType: string): boolean {
   return SUPPORTED_PREVIEW_TYPES.some(type => fileType.startsWith(type));
 }
 
+function safeFormatDate(dateInput: string | undefined, formatString: string): string {
+  if (!dateInput) return 'Date N/A';
+  const date = new Date(dateInput);
+  if (isNaN(date.getTime())) {
+    return 'Invalid Date';
+  }
+  try {
+    return format(date, formatString);
+  } catch (e) {
+    console.error("Error formatting date:", e);
+    return 'Date Error';
+  }
+}
+
 export function FileItem({ file }: FileItemProps) {
-  const { downloadFile, deleteFile, isLoading: vaultIsLoading } = useVault(); // Renamed isLoading to vaultIsLoading
+  const { downloadFile, deleteFile, isLoading: vaultIsLoading } = useVault();
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -49,7 +63,6 @@ export function FileItem({ file }: FileItemProps) {
   const [previewContent, setPreviewContent] = useState<{ url: string; type: string; name: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // Effect to revoke object URL when modal closes or content changes
   useEffect(() => {
     let currentUrl = previewContent?.url;
     return () => {
@@ -79,7 +92,6 @@ export function FileItem({ file }: FileItemProps) {
   const handleDelete = async () => {
     setIsDeleting(true);
     await deleteFile(file.id);
-    // No need to setIsDeleting(false) if item is removed from list by parent
   };
 
   const handlePreview = async () => {
@@ -87,19 +99,18 @@ export function FileItem({ file }: FileItemProps) {
     setIsPreviewing(true);
     setPreviewError(null);
     
-    // Revoke previous object URL if exists
     if (previewContent?.url) {
         URL.revokeObjectURL(previewContent.url);
     }
 
-    const decryptedFile = await downloadFile(file.id); // Reuses download logic for decryption
+    const decryptedFile = await downloadFile(file.id);
     if (decryptedFile) {
       const objectUrl = URL.createObjectURL(decryptedFile.blob);
       setPreviewContent({ url: objectUrl, type: decryptedFile.blob.type, name: decryptedFile.name });
       setShowPreviewModal(true);
     } else {
       setPreviewError("Could not load file for preview.");
-      setShowPreviewModal(true); // Show modal to display error
+      setShowPreviewModal(true);
     }
     setIsPreviewing(false);
   };
@@ -115,7 +126,7 @@ export function FileItem({ file }: FileItemProps) {
           <div className="overflow-hidden">
             <p className="text-sm font-medium truncate text-foreground" title={file.name}>{file.name}</p>
             <p className="text-xs text-muted-foreground">
-              {formatBytes(file.size)} &bull; Added: {format(new Date(file.createdAt), "MMM d, yyyy")}
+              {formatBytes(file.size)} &bull; Added: {safeFormatDate(file.createdAt, "MMM d, yyyy")}
             </p>
           </div>
         </div>
@@ -157,11 +168,11 @@ export function FileItem({ file }: FileItemProps) {
           isOpen={showPreviewModal}
           onClose={() => {
             setShowPreviewModal(false);
-            if (previewContent?.url) { // Revoke URL when modal is manually closed
+            if (previewContent?.url) {
                 URL.revokeObjectURL(previewContent.url);
             }
-            setPreviewContent(null); // Clear content
-            setPreviewError(null); // Clear error
+            setPreviewContent(null);
+            setPreviewError(null);
           }}
           content={previewContent}
           error={previewError}

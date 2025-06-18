@@ -26,6 +26,20 @@ interface CredentialItemProps {
   credential: CredentialMetadata;
 }
 
+function safeFormatDate(dateInput: string | undefined, formatString: string): string {
+  if (!dateInput) return 'Date N/A';
+  const date = new Date(dateInput);
+  if (isNaN(date.getTime())) {
+    return 'Invalid Date';
+  }
+  try {
+    return format(date, formatString);
+  } catch (e) {
+    console.error("Error formatting date:", e);
+    return 'Date Error';
+  }
+}
+
 export function CredentialItem({ credential }: CredentialItemProps) {
   const { getDecryptedCredentialContent, deleteCredential, isLoadingCredentials } = useVault();
   const [isViewing, setIsViewing] = useState(false);
@@ -67,7 +81,6 @@ export function CredentialItem({ credential }: CredentialItemProps) {
       setDecryptedContentForEdit(content);
     } else {
       setEditError("Could not load credential content for editing. You can still modify name/type or provide new content.");
-      // Pass null content to modal, modal will handle display of error and allow editing fields.
     }
     setShowEditModal(true);
     setIsPreparingEdit(false);
@@ -76,7 +89,6 @@ export function CredentialItem({ credential }: CredentialItemProps) {
   const handleDelete = async () => {
     setIsDeleting(true);
     await deleteCredential(credential.id);
-    // State update handled by VaultProvider, which will remove item from list.
   };
   
   const currentActionLoading = isLoadingCredentials || isViewing || isDeleting || isPreparingEdit;
@@ -91,7 +103,7 @@ export function CredentialItem({ credential }: CredentialItemProps) {
             <div className="flex items-center space-x-2">
                 <Badge variant="secondary" className="text-xs">{credential.type}</Badge>
                 <p className="text-xs text-muted-foreground">
-                    Added: {format(new Date(credential.createdAt), "MMM d, yyyy")}
+                    Added: {safeFormatDate(credential.createdAt, "MMM d, yyyy")}
                 </p>
             </div>
           </div>
@@ -133,7 +145,7 @@ export function CredentialItem({ credential }: CredentialItemProps) {
           isOpen={showViewModal}
           onClose={() => {
             setShowViewModal(false);
-            setDecryptedContentForView(null); // Clear content when modal closes
+            setDecryptedContentForView(null); 
             setViewError(null);
           }}
           credentialName={credential.name}
@@ -148,10 +160,10 @@ export function CredentialItem({ credential }: CredentialItemProps) {
           isOpen={showEditModal}
           onClose={() => {
             setShowEditModal(false);
-            setDecryptedContentForEdit(null); // Clear content when modal closes
+            setDecryptedContentForEdit(null); 
             setEditError(null);
           }}
-          credential={{...credential, content: decryptedContentForEdit}} // Pass potentially null content if error
+          credential={{...credential, content: decryptedContentForEdit}}
           error={editError}
         />
       )}
