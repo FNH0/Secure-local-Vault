@@ -3,8 +3,8 @@
 
 import { FileUpload } from '@/components/vault/FileUpload';
 import { FileList } from '@/components/vault/FileList';
-import { ImportCredentials } from '@/components/settings/ImportCredentials'; // Added
-import { Separator } from '@/components/ui/separator'; // Added
+import { ImportCredentials } from '@/components/settings/ImportCredentials';
+import { Separator } from '@/components/ui/separator'; // Ensure this import is present and correct
 
 export default function VaultPage() {
   return (
@@ -13,10 +13,11 @@ export default function VaultPage() {
         <h1 className="text-3xl font-headline font-bold text-primary mb-2">Secure Vault</h1>
         <p className="text-muted-foreground">Manage your encrypted files. All files are stored locally and encrypted in your browser.</p>
       </div>
-      <ImportCredentials /> {/* Added component */}
-      <Separator className="my-8" /> {/* Added separator */}
+      <ImportCredentials />
+      <Separator className="my-8" />
       <FileUpload />
       <FileList />
     </div>
   );
 }
+
