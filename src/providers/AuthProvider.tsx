@@ -169,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let userVaultId = localStorage.getItem(vaultIdKey);
 
       if (!storedHash || !saltBase64) {
-        console.error('Account data not found for this username.');
+        // No console.error here, as LoginForm will show "Invalid username or password"
         setDerivedKey(null);
         setActiveUsername(null);
         setActiveUserVaultId(null);
@@ -195,7 +195,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
         return true;
       } else {
-        console.error('Invalid password.');
+        // Removed: console.error('Invalid password.'); 
+        // LoginForm handles UI feedback for this.
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -250,7 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!bip39.validateMnemonic(phrase)) {
-        console.error('Invalid recovery phrase.');
+        // No console.error needed here, LoginForm will show a generic failure toast.
         setIsLoading(false);
         return false;
       }
@@ -407,3 +408,4 @@ export function useAuth() {
   }
   return context;
 }
+
