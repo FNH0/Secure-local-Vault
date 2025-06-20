@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ViewCredentialModal } from './ViewCredentialModal';
 import { EditCredentialModal } from './EditCredentialModal';
 import { Badge } from '@/components/ui/badge';
@@ -28,11 +28,11 @@ interface CredentialItemProps {
 
 function safeFormatDate(dateInput: string | undefined, formatString: string): string {
   if (!dateInput) return 'Date N/A';
-  const date = new Date(dateInput);
-  if (isNaN(date.getTime())) {
-    return 'Invalid Date';
-  }
   try {
+    const date = new Date(dateInput);
+    if (isNaN(date.getTime())) {
+      return 'Invalid Date';
+    }
     return format(date, formatString);
   } catch (e) {
     console.error("Error formatting date:", e);
@@ -54,7 +54,11 @@ export function CredentialItem({ credential }: CredentialItemProps) {
   
   const [viewError, setViewError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [formattedDate, setFormattedDate] = useState<string>('Loading date...');
 
+  useEffect(() => {
+    setFormattedDate(safeFormatDate(credential.createdAt, "MMM d, yyyy"));
+  }, [credential.createdAt]);
 
   const handleView = async () => {
     setIsViewing(true);
@@ -89,6 +93,7 @@ export function CredentialItem({ credential }: CredentialItemProps) {
   const handleDelete = async () => {
     setIsDeleting(true);
     await deleteCredential(credential.id);
+    // No need to setIsDeleting(false) here
   };
   
   const currentActionLoading = isLoadingCredentials || isViewing || isDeleting || isPreparingEdit;
@@ -103,7 +108,7 @@ export function CredentialItem({ credential }: CredentialItemProps) {
             <div className="flex items-center space-x-2">
                 <Badge variant="secondary" className="text-xs">{credential.type}</Badge>
                 <p className="text-xs text-muted-foreground">
-                    Added: {safeFormatDate(credential.createdAt, "MMM d, yyyy")}
+                    Added: {formattedDate}
                 </p>
             </div>
           </div>

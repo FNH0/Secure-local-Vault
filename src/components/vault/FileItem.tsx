@@ -42,11 +42,11 @@ function isPreviewSupported(fileType: string): boolean {
 
 function safeFormatDate(dateInput: string | undefined, formatString: string): string {
   if (!dateInput) return 'Date N/A';
-  const date = new Date(dateInput);
-  if (isNaN(date.getTime())) {
-    return 'Invalid Date';
-  }
   try {
+    const date = new Date(dateInput);
+    if (isNaN(date.getTime())) {
+      return 'Invalid Date';
+    }
     return format(date, formatString);
   } catch (e) {
     console.error("Error formatting date:", e);
@@ -62,6 +62,11 @@ export function FileItem({ file }: FileItemProps) {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewContent, setPreviewContent] = useState<{ url: string; type: string; name: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [formattedDate, setFormattedDate] = useState<string>('Loading date...');
+
+  useEffect(() => {
+    setFormattedDate(safeFormatDate(file.createdAt, "MMM d, yyyy"));
+  }, [file.createdAt]);
 
   useEffect(() => {
     let currentUrl = previewContent?.url;
@@ -92,6 +97,7 @@ export function FileItem({ file }: FileItemProps) {
   const handleDelete = async () => {
     setIsDeleting(true);
     await deleteFile(file.id);
+    // No need to setIsDeleting(false) here if the component might unmount or re-render due to list change
   };
 
   const handlePreview = async () => {
@@ -126,7 +132,7 @@ export function FileItem({ file }: FileItemProps) {
           <div className="overflow-hidden">
             <p className="text-sm font-medium truncate text-foreground" title={file.name}>{file.name}</p>
             <p className="text-xs text-muted-foreground">
-              {formatBytes(file.size)} &bull; Added: {safeFormatDate(file.createdAt, "MMM d, yyyy")}
+              {formatBytes(file.size)} &bull; Added: {formattedDate}
             </p>
           </div>
         </div>
