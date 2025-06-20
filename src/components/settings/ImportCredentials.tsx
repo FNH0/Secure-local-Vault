@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Upload, Loader2, FileText, CheckCircle, XCircle, ShieldAlertIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Separator } from '@/components/ui/separator'; // Added missing import
 
 interface ImportResult {
   successCount: number;
