@@ -27,22 +27,21 @@ export function FingerprintSettings() {
 
   useEffect(() => {
     setIsClient(true);
-    if (typeof window !== 'undefined' && navigator.credentials && typeof navigator.credentials.create === 'function') {
-      navigator.credentials.isUserVerifyingPlatformAuthenticatorAvailable?.().then(setIsBiometricAuthSupported).catch(() => setIsBiometricAuthSupported(true));
+    // Simplified, optimistic check for WebAuthn support.
+    // The actual success/failure will be determined when the user tries to enable it.
+    const isSupported = typeof window !== 'undefined' && !!navigator.credentials && !!navigator.credentials.create;
+    setIsBiometricAuthSupported(isSupported);
 
-      if (activeUserVaultId) { // Check based on activeUserVaultId
-        const storedCredentialId = localStorage.getItem(getWebAuthnCredentialIdKey(activeUserVaultId));
-        const storedUserHandle = localStorage.getItem(getWebAuthnUserHandleKey(activeUserVaultId));
-        if (storedCredentialId && storedUserHandle) {
-          setIsBiometricAuthEnabled(true);
-        } else {
-          setIsBiometricAuthEnabled(false);
-        }
+    if (activeUserVaultId) {
+      const storedCredentialId = localStorage.getItem(getWebAuthnCredentialIdKey(activeUserVaultId));
+      const storedUserHandle = localStorage.getItem(getWebAuthnUserHandleKey(activeUserVaultId));
+      if (storedCredentialId && storedUserHandle) {
+        setIsBiometricAuthEnabled(true);
       } else {
         setIsBiometricAuthEnabled(false);
       }
     } else {
-      setIsBiometricAuthSupported(false);
+      setIsBiometricAuthEnabled(false);
     }
   }, [activeUserVaultId]);
 
