@@ -96,13 +96,15 @@ export function LoginForm() {
   const handleBiometricLogin = async () => {
     setIsSubmitting(true);
 
-    const success = await loginWithBiometrics(username, password);
+    const success = await loginWithBiometrics(username);
     if (success) {
-        toast({ title: 'Success!', description: 'Biometric login successful.' });
-        router.push('/vault');
-    } else {
-        // AuthProvider will show specific toasts for biometric failure vs. password failure
-    }
+        toast({ 
+          title: 'Biometric Scan Successful', 
+          description: 'Please enter your password to unlock the vault.' 
+        });
+        document.getElementById('password')?.focus();
+    } 
+    // Failure toasts are handled by the provider
     setIsSubmitting(false);
   }
 

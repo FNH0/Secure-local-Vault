@@ -37,7 +37,7 @@ interface AuthContextType {
   activeUserVaultId: string | null;
   derivedKey: CryptoKey | null;
   login: (username: string, password: string) => Promise<boolean>;
-  loginWithBiometrics: (username: string, password: string) => Promise<boolean>;
+  loginWithBiometrics: (username: string) => Promise<boolean>;
   logout: () => void;
   signup: (username: string, password: string) => Promise<{success: boolean, message?: string}>;
   resetPasswordWithRecoveryPhrase: (username: string, phrase: string, newPassword: string) => Promise<boolean>;
@@ -208,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, []);
   
-  const loginWithBiometrics = useCallback(async (username: string, password: string): Promise<boolean> => {
+  const loginWithBiometrics = useCallback(async (username: string): Promise<boolean> => {
     setIsLoading(true);
     try {
         const vaultId = localStorage.getItem(getVaultIdKey(username));
@@ -244,12 +244,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return false;
         }
 
-        // If biometric authentication is successful, now try to log in with the provided password
-        const passwordLoginSuccess = await login(username, password);
-        if (!passwordLoginSuccess) {
-           toast({ title: "Login Failed", description: "Biometrics succeeded, but the password was incorrect.", variant: "destructive" });
-        }
-        return passwordLoginSuccess;
+        // Biometric authentication successful. Return true but do NOT attempt password login.
+        // The UI will prompt the user for their password next.
+        setIsLoading(false);
+        return true;
 
     } catch (error: any) {
         console.error('Biometric login error:', error);
@@ -258,7 +256,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
     }
     return false;
-  }, [login, toast]);
+  }, [toast]);
 
   const signup = useCallback(async (username: string, password: string): Promise<{success: boolean, message?: string}> => {
     setIsLoading(true);
