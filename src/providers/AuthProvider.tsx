@@ -18,6 +18,8 @@ import {
 } from '@/lib/constants';
 import * as bip39 from 'bip39';
 import type { FileMetadata, CredentialMetadata } from './VaultProvider'; // Import types from VaultProvider
+import { arrayBufferToBase64, base64ToArrayBuffer } from '@/lib/cryptoUtils';
+import { useToast } from '@/hooks/use-toast';
 
 
 export interface UserDetailsForAdmin {
@@ -35,6 +37,7 @@ interface AuthContextType {
   activeUserVaultId: string | null;
   derivedKey: CryptoKey | null;
   login: (username: string, password: string) => Promise<boolean>;
+  loginWithBiometrics: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   signup: (username: string, password: string) => Promise<{success: boolean, message?: string}>;
   resetPasswordWithRecoveryPhrase: (username: string, phrase: string, newPassword: string) => Promise<boolean>;
@@ -105,6 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [activeUserVaultId, setActiveUserVaultId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
+  const { toast } = useToast();
 
   useEffect(() => {
     setIsLoading(true);
@@ -169,7 +173,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let userVaultId = localStorage.getItem(vaultIdKey);
 
       if (!storedHash || !saltBase64) {
-        // No console.error here, as LoginForm will show "Invalid username or password"
         setDerivedKey(null);
         setActiveUsername(null);
         setActiveUserVaultId(null);
@@ -194,20 +197,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem(ACTIVE_USERNAME_KEY, username);
         setIsLoading(false);
         return true;
-      } else {
-        // Removed: console.error('Invalid password.'); 
-        // LoginForm handles UI feedback for this.
       }
     } catch (error) {
       console.error('Login error:', error);
     }
     setDerivedKey(null);
     setActiveUsername(null);
-    setActiveUserVaultId(null);
     localStorage.removeItem(ACTIVE_USERNAME_KEY);
     setIsLoading(false);
     return false;
   }, []);
+  
+  const loginWithBiometrics = useCallback(async (username: string, password: string): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+        const vaultId = localStorage.getItem(getVaultIdKey(username));
+        if (!vaultId) {
+            toast({ title: "Biometric Error", description: "Vault configuration not found for this user.", variant: "destructive" });
+            setIsLoading(false);
+            return false;
+        }
+
+        const credentialIdBase64 = localStorage.getItem(getWebAuthnCredentialIdKey(vaultId));
+        if (!credentialIdBase64) {
+            toast({ title: "Biometric Error", description: "Biometric login is not set up for this user.", variant: "destructive" });
+            setIsLoading(false);
+            return false;
+        }
+
+        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        
+        const credential = await navigator.credentials.get({
+            publicKey: {
+                challenge,
+                allowCredentials: [{
+                    type: 'public-key',
+                    id: base64ToArrayBuffer(credentialIdBase64),
+                }],
+                userVerification: 'required',
+            }
+        });
+
+        if (!credential) {
+          toast({ title: "Biometric Failed", description: "Authentication was cancelled or failed.", variant: "destructive" });
+          setIsLoading(false);
+          return false;
+        }
+
+        // If biometric authentication is successful, now try to log in with the provided password
+        const passwordLoginSuccess = await login(username, password);
+        if (!passwordLoginSuccess) {
+           toast({ title: "Login Failed", description: "Biometrics succeeded, but the password was incorrect.", variant: "destructive" });
+        }
+        return passwordLoginSuccess;
+
+    } catch (error: any) {
+        console.error('Biometric login error:', error);
+        toast({ title: "Biometric Failed", description: error.message || "An unknown biometric error occurred.", variant: "destructive" });
+    } finally {
+        setIsLoading(false);
+    }
+    return false;
+  }, [login, toast]);
 
   const signup = useCallback(async (username: string, password: string): Promise<{success: boolean, message?: string}> => {
     setIsLoading(true);
@@ -251,7 +302,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!bip39.validateMnemonic(phrase)) {
-        // No console.error needed here, LoginForm will show a generic failure toast.
         setIsLoading(false);
         return false;
       }
@@ -288,8 +338,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setActiveUsername(null);
     setActiveUserVaultId(null);
     localStorage.removeItem(ACTIVE_USERNAME_KEY);
-    // No router.push here; let individual pages/layouts handle redirection if needed.
-    // This makes logout more flexible, e.g. admin panel logout won't redirect to user login.
   }, []);
 
   // Admin panel functions
@@ -369,8 +417,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // If the deleted user is the currently active user, log them out
       if (activeUsername === usernameToDelete) {
         logout(); 
-        // After logging out active user, router.push might be needed if on a protected page.
-        // However, admin panel itself is not auth-provider protected, but has its own auth.
       }
       
       setIsLoading(false);
@@ -388,6 +434,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     activeUserVaultId,
     derivedKey,
     login,
+    loginWithBiometrics,
     logout,
     signup,
     resetPasswordWithRecoveryPhrase,
@@ -408,4 +455,3 @@ export function useAuth() {
   }
   return context;
 }
-

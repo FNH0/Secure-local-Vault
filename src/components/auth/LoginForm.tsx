@@ -11,7 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Loader2, RotateCcw, ShieldQuestion, UserPlus, LogIn, Users } from 'lucide-react';
+import { Eye, EyeOff, Loader2, RotateCcw, ShieldQuestion, UserPlus, LogIn, Fingerprint } from 'lucide-react';
+import { getVaultIdKey, getWebAuthnCredentialIdKey } from '@/lib/constants';
 
 type LoginFormMode = 'login' | 'signup' | 'recoverPassword';
 
@@ -24,8 +25,11 @@ export function LoginForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [existingUsernames, setExistingUsernames] = useState<string[]>([]);
+  const [isBiometricSupportedForUser, setIsBiometricSupportedForUser] = useState(false);
+
   const { 
-    login, 
+    login,
+    loginWithBiometrics,
     signup, 
     resetPasswordWithRecoveryPhrase, 
     getAllUsernames,
@@ -59,6 +63,48 @@ export function LoginForm() {
     fetchUsernames();
   }, [getAllUsernames, previouslyActiveUsername]);
 
+  // Check for biometric support when username changes
+  useEffect(() => {
+    if (username) {
+      try {
+        const vaultId = localStorage.getItem(getVaultIdKey(username));
+        const credentialId = vaultId ? localStorage.getItem(getWebAuthnCredentialIdKey(vaultId)) : null;
+        setIsBiometricSupportedForUser(!!credentialId);
+      } catch (e) {
+        setIsBiometricSupportedForUser(false);
+      }
+    } else {
+      setIsBiometricSupportedForUser(false);
+    }
+  }, [username]);
+
+  const handlePasswordLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    
+    const success = await login(username, password);
+    if (success) {
+      toast({ title: 'Success', description: 'Logged in successfully.' });
+      router.push('/vault');
+    } else {
+      toast({ title: 'Error', description: 'Invalid username or password.', variant: 'destructive' });
+    }
+    
+    setIsSubmitting(false);
+  }
+
+  const handleBiometricLogin = async () => {
+    setIsSubmitting(true);
+
+    const success = await loginWithBiometrics(username, password);
+    if (success) {
+        toast({ title: 'Success!', description: 'Biometric login successful.' });
+        router.push('/vault');
+    } else {
+        // AuthProvider will show specific toasts for biometric failure vs. password failure
+    }
+    setIsSubmitting(false);
+  }
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -69,7 +115,6 @@ export function LoginForm() {
         setIsSubmitting(false);
         return;
     }
-
 
     if (currentMode === 'signup') {
       if (password !== confirmPassword) {
@@ -90,13 +135,8 @@ export function LoginForm() {
         toast({ title: 'Error', description: result.message || 'Failed to create account. Please try again.', variant: 'destructive' });
       }
     } else if (currentMode === 'login') {
-      const success = await login(username, password);
-      if (success) {
-        toast({ title: 'Success', description: 'Logged in successfully.' });
-        router.push('/vault');
-      } else {
-        toast({ title: 'Error', description: 'Invalid username or password.', variant: 'destructive' });
-      }
+      // This path is now only for the main form submission, not the button click directly
+      await handlePasswordLogin(event);
     } else if (currentMode === 'recoverPassword') {
       if (!recoveryPhrase.trim()) {
         toast({ title: 'Error', description: 'Recovery phrase cannot be empty.', variant: 'destructive' });
@@ -162,7 +202,7 @@ export function LoginForm() {
   const getButtonText = () => {
     if (currentMode === 'signup') return 'Create Account & Login';
     if (currentMode === 'recoverPassword') return 'Reset Password & Login';
-    return 'Login';
+    return 'Login with Password';
   }
 
   return (
@@ -275,6 +315,14 @@ export function LoginForm() {
             {(isSubmitting || authIsLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {getButtonText()}
           </Button>
+
+          {currentMode === 'login' && isBiometricSupportedForUser && (
+            <Button type="button" variant="outline" className="w-full" disabled={isSubmitting || authIsLoading} onClick={handleBiometricLogin}>
+              {(isSubmitting || authIsLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Fingerprint className="mr-2 h-4 w-4" />
+              Login with Face ID / Fingerprint
+            </Button>
+          )}
           
           {currentMode === 'login' && (
             <>
