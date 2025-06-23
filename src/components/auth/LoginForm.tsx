@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Loader2, RotateCcw, ShieldQuestion, UserPlus, LogIn, Fingerprint } from 'lucide-react';
+import { Eye, EyeOff, Loader2, RotateCcw, ShieldQuestion, UserPlus, LogIn, Fingerprint, CheckCircle, Keyboard } from 'lucide-react';
 import { getVaultIdKey, getWebAuthnCredentialIdKey } from '@/lib/constants';
 
 type LoginFormMode = 'login' | 'signup' | 'recoverPassword';
@@ -26,6 +26,10 @@ export function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [existingUsernames, setExistingUsernames] = useState<string[]>([]);
   const [isBiometricSupportedForUser, setIsBiometricSupportedForUser] = useState(false);
+
+  // State for biometric flow
+  const [identityVerified, setIdentityVerified] = useState(false);
+  const [forcePasswordMode, setForcePasswordMode] = useState(false);
 
   const { 
     login,
@@ -56,15 +60,16 @@ export function LoginForm() {
       if (previouslyActiveUsername && users.includes(previouslyActiveUsername)) {
         setUsername(previouslyActiveUsername);
       } else if (users.length > 0 && !previouslyActiveUsername) {
-        // Optionally pre-select the first user or leave blank
-        // setUsername(users[0]); 
+        // setUsername(users[0]); // Optionally pre-select the first user
       }
     };
     fetchUsernames();
   }, [getAllUsernames, previouslyActiveUsername]);
 
-  // Check for biometric support when username changes
+  // Check for biometric support when username changes and reset flow state
   useEffect(() => {
+    setIdentityVerified(false);
+    setForcePasswordMode(false);
     if (username) {
       try {
         const vaultId = localStorage.getItem(getVaultIdKey(username));
@@ -95,14 +100,11 @@ export function LoginForm() {
 
   const handleBiometricLogin = async () => {
     setIsSubmitting(true);
-
     const success = await loginWithBiometrics(username);
     if (success) {
-        toast({ 
-          title: 'Biometric Scan Successful', 
-          description: 'Please enter your password to unlock the vault.' 
-        });
-        document.getElementById('password')?.focus();
+        setIdentityVerified(true);
+        // Focus password field after a short delay to allow UI to render
+        setTimeout(() => document.getElementById('password')?.focus(), 100);
     } 
     // Failure toasts are handled by the provider
     setIsSubmitting(false);
@@ -137,7 +139,6 @@ export function LoginForm() {
         toast({ title: 'Error', description: result.message || 'Failed to create account. Please try again.', variant: 'destructive' });
       }
     } else if (currentMode === 'login') {
-      // This path is now only for the main form submission, not the button click directly
       await handlePasswordLogin(event);
     } else if (currentMode === 'recoverPassword') {
       if (!recoveryPhrase.trim()) {
@@ -189,21 +190,28 @@ export function LoginForm() {
     );
   }
 
+  // --- Login Mode UI Logic ---
+  const showBiometricPath = currentMode === 'login' && isBiometricSupportedForUser && !forcePasswordMode;
+
   const getTitle = () => {
     if (currentMode === 'signup') return 'Create Your Secure Account';
     if (currentMode === 'recoverPassword') return 'Recover Your Vault Account';
+    if (identityVerified) return 'Identity Verified';
     return 'Unlock Your Vault';
   };
 
   const getDescription = () => {
     if (currentMode === 'signup') return 'Choose a username and a strong password to protect your vault.';
     if (currentMode === 'recoverPassword') return 'Enter your username, 12-word recovery phrase, and set a new password.';
+    if (identityVerified) return 'Enter your password to decrypt and unlock the vault.';
+    if (showBiometricPath) return 'Use your registered biometric to verify your identity.';
     return 'Enter your username and password to access your secure files.';
   };
   
   const getButtonText = () => {
     if (currentMode === 'signup') return 'Create Account & Login';
     if (currentMode === 'recoverPassword') return 'Reset Password & Login';
+    if (identityVerified) return 'Unlock Vault';
     return 'Login with Password';
   }
 
@@ -231,19 +239,21 @@ export function LoginForm() {
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
-            <Input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value.trim())}
-              required
-              className="bg-input border-primary/50 focus:ring-primary focus:border-primary"
-              placeholder={currentMode === 'login' && existingUsernames.length > 0 ? "Or type new username..." : "Enter your username"}
-              autoComplete="username"
-            />
-          </div>
+          {currentMode !== 'login' && (
+             <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value.trim())}
+                required
+                className="bg-input border-primary/50 focus:ring-primary focus:border-primary"
+                placeholder={currentMode === 'login' && existingUsernames.length > 0 ? "Or type new username..." : "Enter your username"}
+                autoComplete="username"
+                />
+            </div>
+          )}
 
           {currentMode === 'recoverPassword' && (
             <div className="space-y-2">
@@ -259,99 +269,143 @@ export function LoginForm() {
               />
             </div>
           )}
+          
+          {identityVerified && (
+            <div className="!mt-2 p-3 bg-green-500/10 border border-green-500/30 text-green-400 rounded-md text-center flex items-center justify-center space-x-2">
+              <CheckCircle className="h-5 w-5" />
+              <p className="font-semibold text-sm">Identity Verified</p>
+            </div>
+          )}
 
-          <div className="space-y-2">
-            <Label htmlFor="password">{currentMode === 'recoverPassword' ? 'New Password' : 'Password'}</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
-                placeholder={currentMode === 'recoverPassword' ? 'Enter new password' : 'Enter your password'}
-                autoComplete={currentMode === 'login' ? "current-password" : "new-password"}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent text-muted-foreground"
-                onClick={() => setShowPassword(!showPassword)}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
-          {(currentMode === 'signup' || currentMode === 'recoverPassword') && (
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password">{currentMode === 'recoverPassword' ? 'Confirm New Password' : 'Confirm Password'}</Label>
-              <div className="relative">
+          {(!showBiometricPath || identityVerified) && currentMode === 'login' && (
+             <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
                 <Input
-                  id="confirm-password"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
-                  placeholder={currentMode === 'recoverPassword' ? 'Confirm new password' : 'Confirm your password'}
-                  autoComplete="new-password"
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
+                    placeholder='Enter your password'
+                    autoComplete="current-password"
                 />
-                 <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent text-muted-foreground"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent text-muted-foreground"
+                    onClick={() => setShowPassword(!showPassword)}
                 >
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
-              </div>
-               <p className="text-xs text-muted-foreground pt-1">Password must be at least 8 characters long.</p>
+                </div>
             </div>
+          )}
+
+          {(currentMode === 'signup' || currentMode === 'recoverPassword') && (
+            <>
+                <div className="space-y-2">
+                    <Label htmlFor="password">{currentMode === 'recoverPassword' ? 'New Password' : 'Password'}</Label>
+                    <div className="relative">
+                    <Input
+                        id="password"
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
+                        placeholder={currentMode === 'recoverPassword' ? 'Enter new password' : 'Enter your password'}
+                        autoComplete="new-password"
+                    />
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent text-muted-foreground"
+                        onClick={() => setShowPassword(!showPassword)}
+                    >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                    </div>
+                </div>
+                <div className="space-y-2">
+                <Label htmlFor="confirm-password">{currentMode === 'recoverPassword' ? 'Confirm New Password' : 'Confirm Password'}</Label>
+                <div className="relative">
+                    <Input
+                    id="confirm-password"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
+                    placeholder={currentMode === 'recoverPassword' ? 'Confirm new password' : 'Confirm your password'}
+                    autoComplete="new-password"
+                    />
+                    <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent text-muted-foreground"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                </div>
+                <p className="text-xs text-muted-foreground pt-1">Password must be at least 8 characters long.</p>
+                </div>
+            </>
           )}
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">
-          <Button type="submit" className="w-full" disabled={isSubmitting || authIsLoading}>
-            {(isSubmitting || authIsLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {getButtonText()}
-          </Button>
-
-          {currentMode === 'login' && isBiometricSupportedForUser && (
-            <Button type="button" variant="outline" className="w-full" disabled={isSubmitting || authIsLoading} onClick={handleBiometricLogin}>
+          
+          {currentMode === 'login' && (!showBiometricPath || identityVerified) && (
+            <Button type="submit" className="w-full" disabled={isSubmitting || authIsLoading}>
               {(isSubmitting || authIsLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <Fingerprint className="mr-2 h-4 w-4" />
-              Login with Face ID / Fingerprint
+              {getButtonText()}
             </Button>
+          )}
+
+          {currentMode === 'login' && showBiometricPath && !identityVerified && (
+            <>
+                <Button type="button" variant="outline" className="w-full" disabled={isSubmitting || authIsLoading || !username} onClick={handleBiometricLogin}>
+                    {(isSubmitting || authIsLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    <Fingerprint className="mr-2 h-4 w-4" />
+                    Login with Face ID / Fingerprint
+                </Button>
+                <Button type="button" variant="link" className="text-sm text-primary/80 hover:text-primary" onClick={() => setForcePasswordMode(true)}>
+                    <Keyboard className="mr-2 h-4 w-4" /> Login with password instead
+                </Button>
+            </>
           )}
           
           {currentMode === 'login' && (
             <>
-            <Button 
-              type="button" 
-              variant="link" 
-              className="text-sm text-primary/80 hover:text-primary"
-              onClick={() => {
-                setCurrentMode('signup');
-                setPassword('');
-                setConfirmPassword('');
-              }}
-            >
-              <UserPlus className="mr-2 h-4 w-4" /> Create New Account
-            </Button>
-            <Button 
-              type="button" 
-              variant="link" 
-              className="text-sm text-primary/80 hover:text-primary -mt-2"
-              onClick={() => {
-                setCurrentMode('recoverPassword');
-                setPassword('');
-                setConfirmPassword('');
-              }}
-            >
-              <ShieldQuestion className="mr-2 h-4 w-4" /> Forgot Password? / Recover
-            </Button>
+              <Button 
+                type="button" 
+                variant="link" 
+                className="text-sm text-primary/80 hover:text-primary"
+                onClick={() => {
+                  setCurrentMode('signup');
+                  setPassword('');
+                  setConfirmPassword('');
+                }}
+              >
+                <UserPlus className="mr-2 h-4 w-4" /> Create New Account
+              </Button>
+              <Button 
+                type="button" 
+                variant="link" 
+                className="text-sm text-primary/80 hover:text-primary -mt-2"
+                onClick={() => {
+                  setCurrentMode('recoverPassword');
+                  setPassword('');
+                  setConfirmPassword('');
+                }}
+              >
+                <ShieldQuestion className="mr-2 h-4 w-4" /> Forgot Password? / Recover
+              </Button>
             </>
           )}
            {(currentMode === 'signup' || currentMode === 'recoverPassword') && (
