@@ -277,34 +277,7 @@ export function LoginForm() {
             </div>
           )}
 
-          {(!showBiometricPath || identityVerified) && currentMode === 'login' && (
-             <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
-                    placeholder='Enter your password'
-                    autoComplete="current-password"
-                />
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent text-muted-foreground"
-                    onClick={() => setShowPassword(!showPassword)}
-                >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-                </div>
-            </div>
-          )}
-
-          {(currentMode === 'signup' || currentMode === 'recoverPassword') && (
+          {(!showBiometricPath || identityVerified) && (currentMode === 'login' || currentMode === 'signup' || currentMode === 'recoverPassword') && (
             <>
                 <div className="space-y-2">
                     <Label htmlFor="password">{currentMode === 'recoverPassword' ? 'New Password' : 'Password'}</Label>
@@ -317,7 +290,7 @@ export function LoginForm() {
                         required
                         className="pr-10 bg-input border-primary/50 focus:ring-primary focus:border-primary"
                         placeholder={currentMode === 'recoverPassword' ? 'Enter new password' : 'Enter your password'}
-                        autoComplete="new-password"
+                        autoComplete={currentMode === 'login' ? "current-password" : "new-password"}
                     />
                     <Button
                         type="button"
@@ -330,6 +303,12 @@ export function LoginForm() {
                     </Button>
                     </div>
                 </div>
+            </>
+          )}
+
+
+          {(currentMode === 'signup' || currentMode === 'recoverPassword') && (
+            <>
                 <div className="space-y-2">
                 <Label htmlFor="confirm-password">{currentMode === 'recoverPassword' ? 'Confirm New Password' : 'Confirm Password'}</Label>
                 <div className="relative">
@@ -360,12 +339,13 @@ export function LoginForm() {
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">
           
-          {currentMode === 'login' && (!showBiometricPath || identityVerified) && (
+          {(currentMode === 'login' && (!showBiometricPath || identityVerified)) || currentMode === 'signup' || currentMode === 'recoverPassword' ? (
             <Button type="submit" className="w-full" disabled={isSubmitting || authIsLoading}>
               {(isSubmitting || authIsLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {getButtonText()}
             </Button>
-          )}
+          ) : null}
+
 
           {currentMode === 'login' && showBiometricPath && !identityVerified && (
             <>
@@ -408,6 +388,7 @@ export function LoginForm() {
               </Button>
             </>
           )}
+
            {(currentMode === 'signup' || currentMode === 'recoverPassword') && (
             <Button 
               type="button" 
